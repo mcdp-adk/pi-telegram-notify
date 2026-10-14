@@ -1,0 +1,4 @@
+#!/bin/sh
+# Local commit-msg hook; enabled by the package.json "prepare" script, which
+# points core.hooksPath here. Fails the commit on a non-conforming message.
+npx --no-install commitlint --edit "$1"

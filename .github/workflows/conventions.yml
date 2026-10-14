@@ -1,0 +1,30 @@
+# Checks a PR against the repo's collaboration conventions (CONTRIBUTING.md):
+# the title passes commitlint, the body carries every heading of the PR
+# template, and, unless the PR is a draft, every issue it closes has all of its
+# acceptance criteria ticked and cites only commits reachable from the PR or
+# main, which needs the full history. The PR title can reach main through a
+# squash merge, so commitlint judges it like a commit message.
+name: conventions
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/check-pr.ts ${{ github.event_path }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

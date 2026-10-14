@@ -1,0 +1,40 @@
+{
+  "name": "@mcdp-adk/pi-telegram-notify",
+  "version": "0.0.0",
+  "description": "pi extension: send Telegram notifications",
+  "type": "module",
+  "main": "src/extension.ts",
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ]
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
+    "lint": "tsc -p . && knip",
+    "test": "node test/run.ts"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@commitlint/types": "^19.8.1",
+    "@earendil-works/pi-coding-agent": "^1.1.0",
+    "@types/node": "^22.19.0",
+    "knip": "^6.41.0",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcdp-adk/pi-telegram-notify.git"
+  }
+}
