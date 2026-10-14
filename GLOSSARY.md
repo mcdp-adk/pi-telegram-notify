@@ -4,6 +4,9 @@ A pi extension that sends Telegram notifications so the developer can follow pi'
 
 ## Language
 
+**Session**:
+One pi conversation, from starting pi or `/new` until leaving it; the developer may run several at once in different projects.
+
 **Project name**:
 The basename of a session's working directory, as pi shows it in the terminal title.
 _Avoid_: repo name, workspace
@@ -15,3 +18,18 @@ _Avoid_: session title
 **Session tag**:
 The last four hex characters of a session's id, shown on every notification to tell sessions apart.
 _Avoid_: session label, short id
+
+**Run**:
+Everything pi does in a session between receiving a message and stopping to wait for the next one; it ends completed, with an error, or aborted.
+_Avoid_: Turn (one model reply within a run), task
+
+**Notification**:
+One Telegram message the extension sends about a session.
+
+**Notification level**:
+The setting that decides which moments in a run produce notifications and how much each says; each level includes everything below it.
+_Avoid_: Verbosity, mode
+
+**Sub-agent**:
+A separate pi process another extension starts to carry out a task for a session.
+_Avoid_: Child, delegate
