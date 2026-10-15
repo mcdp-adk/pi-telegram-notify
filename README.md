@@ -1,17 +1,26 @@
 # pi-telegram-notify
 
-A pi extension that sends you a Telegram message when a run completes, so you
-can leave the computer and come back the moment pi waits on you.
+A pi extension that sends you a Telegram message whenever pi stops and waits
+on you in a terminal UI (`tui`) session, so you can leave the computer and
+come back the moment it needs you.
 
-When a run completes in a terminal UI (`tui`) session, the extension posts one
-Telegram message that rings. Its first line reads
-`✅ Completed · <duration> · #s<tag>`, followed by the project name (the
-basename of the session's working directory) and the session name when the
-session has one. Below that, the end of pi's final reply appears in a
-collapsed quote, cut to about 800 characters. Anything else — an aborted run,
-a non-`tui` session (`pi -p`, `--mode json`, `--mode rpc`), session start and
-end — stays silent. Sends run in the background and never delay, abort, or
-crash the session.
+Three moments notify, each as one Telegram message that rings:
+
+- `✅ Completed · <duration> · #s<tag>` when a run finishes, with the end of
+  pi's final reply in a collapsed quote below.
+- `❌ Error · <duration> · #s<tag>` when a run fails, with the error message
+  in bold above the quote.
+- `❓ Waiting for you · #s<tag>` when a run opens a dialog (a confirm, a
+  choice, an input), with the dialog title in bold — no duration, the run
+  is still going.
+
+Every message names the project (the basename of the session's working
+directory) and the session name when the session has one; the `#s<tag>`
+tells apart sessions in the same project. Quotes hold about 800 characters
+of the reply, the bold error line about 300. Anything else — an aborted run,
+a dialog opened outside a run, a non-`tui` session (`pi -p`, `--mode json`,
+`--mode rpc`), session start and end — stays silent. Sends run in the
+background and never delay, abort, or crash the session.
 
 ## Create the bot
 
