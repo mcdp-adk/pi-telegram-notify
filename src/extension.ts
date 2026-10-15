@@ -2,9 +2,11 @@
 // Telegram notification when a run completes or ends with an error in a
 // `tui` session. Only `tui` sessions and settled runs with an outcome of
 // `completed` or `error` notify; aborted runs and anything else return
-// before the sender is reached. No handler awaits a send, and no handler
-// throws, so notifications can never disturb the session. Later tickets add
-// dialogs and the missing-configuration and send-failure warnings.
+// before the sender is reached. At session start a `tui` session with a
+// missing bot token or chat id warns once and then sends nothing. No
+// handler awaits a send, and no handler throws, so notifications can never
+// disturb the session. Later tickets add the dialog shape and the
+// send-failure warning.
 import { basename } from 'node:path';
 import type {
   AgentActivityOutcome,
@@ -48,18 +50,11 @@ function latestReplyText(messages: RunMessage[]): string | undefined {
   return undefined;
 }
 
-// The run's last assistant message's error message, never an earlier
-// one's. A failed tool call carries no message of its own, so only the
-// run's outcome decides between the completed and error shapes.
-function lastErrorMessage(messages: RunMessage[]): string | undefined {
-  if (messages.length === 0) {
-    return undefined;
-  }
-  return messages[messages.length - 1].errorMessage;
-}
-
-function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
+function notifyCompleted(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
   if (ctx.mode !== 'tui') {
+    return;
+  }
+  if (misconfigured) {
     return;
   }
   const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
@@ -80,8 +75,21 @@ function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
   );
 }
 
-function notifyError(ctx: ExtensionContext, run: ActiveRun): void {
+// The run's last assistant message's error message, never an earlier
+// one's. A failed tool call carries no message of its own, so only the
+// run's outcome decides between the completed and error shapes.
+function lastErrorMessage(messages: RunMessage[]): string | undefined {
+  if (messages.length === 0) {
+    return undefined;
+  }
+  return messages[messages.length - 1].errorMessage;
+}
+
+function notifyError(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
   if (ctx.mode !== 'tui') {
+    return;
+  }
+  if (misconfigured) {
     return;
   }
   const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
@@ -105,6 +113,37 @@ function notifyError(ctx: ExtensionContext, run: ActiveRun): void {
 
 export default function (pi: ExtensionAPI): void {
   let run: ActiveRun | undefined;
+  // Set at session start: a session that started without its configuration
+  // warns once and then sends nothing, even if the variables appear later.
+  let misconfigured = false;
+
+  pi.on('session_start', (_event, ctx) => {
+    try {
+      if (ctx.mode !== 'tui') {
+        return;
+      }
+      const missing: string[] = [];
+      if (!process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN) {
+        missing.push('PI_TELEGRAM_NOTIFY_BOT_TOKEN');
+      }
+      if (!process.env.PI_TELEGRAM_NOTIFY_CHAT_ID) {
+        missing.push('PI_TELEGRAM_NOTIFY_CHAT_ID');
+      }
+      if (missing.length === 0) {
+        misconfigured = false;
+        return;
+      }
+      misconfigured = true;
+      const names = missing.join(' and ');
+      const verb = missing.length === 1 ? 'is' : 'are';
+      ctx.ui.notify(
+        `pi-telegram-notify: ${names} ${verb} not set; Telegram notifications are disabled for this session.`,
+        'warning',
+      );
+    } catch {
+      // A warning must never break session start.
+    }
+  });
 
   pi.on('before_agent_start', () => {
     if (run === undefined) {
@@ -132,9 +171,9 @@ export default function (pi: ExtensionAPI): void {
     }
     try {
       if (finished.outcome === 'error') {
-        notifyError(ctx, finished);
+        notifyError(ctx, finished, misconfigured);
       } else {
-        notifyCompleted(ctx, finished);
+        notifyCompleted(ctx, finished, misconfigured);
       }
     } catch {
       // Notification bookkeeping must never break settlement.
