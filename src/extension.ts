@@ -245,15 +245,19 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('ui_prompt_start', (event, ctx) => {
     latestCtx = ctx;
-    // A dialog notifies only while its run is still in progress: a dialog
-    // opened from a command while idle sends nothing. The title is absent
-    // for title-less dialogs; the excerpt is the run's latest reply so far.
-    // pi does not await this handler, so the send stays fire-and-forget.
-    if (run === undefined || ctx.isIdle()) {
+    // A dialog notifies only while a run is in progress (`ctx.isIdle()` is
+    // false): a dialog opened from a command while idle sends nothing. The
+    // gate reads the session state, never this extension's own run record,
+    // so a dialog from an extension ordered ahead — opened before this
+    // handler's `before_agent_start` ran — still notifies, with whatever
+    // reply exists so far, possibly none. The title is absent for
+    // title-less dialogs. pi does not await this handler, so the send stays
+    // fire-and-forget.
+    if (ctx.isIdle()) {
       return;
     }
     try {
-      notifyDialog(ctx, event.title, latestReplyText(run.messages), misconfigured, warnSendFailure);
+      notifyDialog(ctx, event.title, run === undefined ? undefined : latestReplyText(run.messages), misconfigured, warnSendFailure);
     } catch {
       // Notification bookkeeping must never break the dialog.
     }
