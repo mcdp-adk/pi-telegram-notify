@@ -232,11 +232,15 @@ export async function shutdownSession(session: AgentSession): Promise<void> {
 }
 
 // Answers the stub gives per Telegram request: a Bot API envelope, a network
-// failure, or a promise that never settles.
+// failure, a malformed (non-envelope) response, or a promise that never
+// settles. `delayMs` holds a failure back so a send can still be in flight
+// when the test moves on (for example to shut the session down). A
+// `network-error` carries a `cause` like the real `fetch` does.
 export type TelegramAnswer =
   | { kind: 'ok' }
-  | { kind: 'bot-error'; description: string }
-  | { kind: 'network-error'; message: string }
+  | { kind: 'bot-error'; description: string; delayMs?: number }
+  | { kind: 'network-error'; message: string; cause?: unknown; delayMs?: number }
+  | { kind: 'malformed'; status: number; body: string; delayMs?: number }
   | { kind: 'never' };
 
 export interface RecordedTelegramRequest {
@@ -278,8 +282,17 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
     if (next.kind === 'never') {
       return new Promise<Response>(() => {});
     }
+    if (next.kind !== 'ok' && next.delayMs !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, next.delayMs));
+    }
     if (next.kind === 'network-error') {
-      throw new Error(next.message, { cause: 'socket hang up' });
+      throw new Error(next.message, { cause: next.cause ?? 'socket hang up' });
+    }
+    if (next.kind === 'malformed') {
+      return new Response(next.body, {
+        status: next.status,
+        headers: { 'content-type': 'text/html' },
+      });
     }
     const envelope =
       next.kind === 'ok'

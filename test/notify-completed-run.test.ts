@@ -306,10 +306,11 @@ describe('completed run', () => {
 
   test('a failed send never crashes the run', async (t) => {
     // Independent contract: a rejected send and a Telegram error answer both
-    // resolve the run quietly — #17 reports nothing yet.
+    // resolve the run quietly, warning only once for the row — the first
+    // failure warns with the network cause, the second stays silent.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub([
-      { kind: 'network-error', message: 'socket hang up' },
+      { kind: 'network-error', message: 'fetch failed' },
       { kind: 'bot-error', description: 'Bad Request: chat not found' },
     ]);
     t.after(() => stub.restore());
@@ -327,6 +328,14 @@ describe('completed run', () => {
     await session.prompt('second');
     const requests = await stub.waitForRequests(2);
     assert.equal(requests.length, 2);
-    assert.deepEqual(notifications, [] as RecordedNotification[]);
+    for (let attempt = 0; attempt < 200 && notifications.length < 1; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.deepEqual(notifications, [
+      {
+        message: 'pi-telegram-notify: failed to send notification: fetch failed: socket hang up',
+        level: 'warning',
+      },
+    ] as RecordedNotification[]);
   });
 });
