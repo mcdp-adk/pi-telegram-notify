@@ -17,7 +17,7 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import { renderNotification } from './message.ts';
 import type { SessionIdentity } from './message.ts';
-import type { DialogDue, RunMessage, SettledRun } from './run.ts';
+import type { DialogDue, SettledRun } from './run.ts';
 import { RunTracker } from './run.ts';
 import { sendTelegramMessage } from './telegram.ts';
 
@@ -40,41 +40,6 @@ function minRunDurationMs(): { ms: number; invalid: string | undefined } {
     return { ms: DEFAULT_MIN_RUN_SECONDS * 1000, invalid: raw };
   }
   return { ms: seconds * 1000, invalid: undefined };
-}
-
-function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
-  if (typeof block !== 'object' || block === null) {
-    return false;
-  }
-  const record = block as { type?: unknown; text?: unknown };
-  return record.type === 'text' && typeof record.text === 'string';
-}
-
-// The run's last assistant message that has reply text, falling back within
-// the run and never reaching an earlier one. Thinking blocks are never text;
-// tool calls carry no text of their own.
-function latestReplyText(messages: RunMessage[]): string | undefined {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
-      continue;
-    }
-    const text = message.content.filter(isTextBlock).map((block) => block.text).join('');
-    if (text !== '') {
-      return text;
-    }
-  }
-  return undefined;
-}
-
-// The run's last assistant message's error message, never an earlier
-// one's. A failed tool call carries no message of its own, so only the
-// run's outcome decides between the completed and error shapes.
-function lastErrorMessage(messages: RunMessage[]): string | undefined {
-  if (messages.length === 0) {
-    return undefined;
-  }
-  return messages[messages.length - 1].errorMessage;
 }
 
 // The single gate every notification passes: only `tui` sessions that
@@ -130,7 +95,7 @@ function notifyCompleted(
       status: 'completed',
       durationMs: run.durationMs,
       ...sessionIdentity(ctx),
-      excerpt: latestReplyText(run.messages),
+      messages: run.messages,
     }),
     onFailure,
   );
@@ -149,8 +114,7 @@ function notifyError(
       status: 'error',
       durationMs: run.durationMs,
       ...sessionIdentity(ctx),
-      detail: lastErrorMessage(run.messages),
-      excerpt: latestReplyText(run.messages),
+      messages: run.messages,
     }),
     onFailure,
   );
@@ -169,8 +133,8 @@ function notifyDialog(
     renderNotification({
       status: 'dialog',
       ...sessionIdentity(ctx),
-      detail: title,
-      excerpt: due.messages === undefined ? undefined : latestReplyText(due.messages),
+      title,
+      messages: due.messages,
     }),
     onFailure,
   );
