@@ -246,6 +246,9 @@ export type TelegramAnswer =
   | { kind: 'bot-error'; description: string; delayMs?: number }
   | { kind: 'network-error'; message: string; cause?: unknown; delayMs?: number }
   | { kind: 'malformed'; status: number; body: string; delayMs?: number }
+  // The body fails mid-read, e.g. a socket dying under Telegram's JSON:
+  // `response.json()` rejects with this transport error.
+  | { kind: 'body-error'; message: string; cause?: unknown }
   | { kind: 'never' };
 
 export interface RecordedTelegramRequest {
@@ -287,7 +290,7 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
     if (next.kind === 'never') {
       return new Promise<Response>(() => {});
     }
-    if (next.kind !== 'ok' && next.delayMs !== undefined) {
+    if ((next.kind === 'bot-error' || next.kind === 'network-error' || next.kind === 'malformed') && next.delayMs !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, next.delayMs));
     }
     if (next.kind === 'network-error') {
@@ -298,6 +301,13 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
         status: next.status,
         headers: { 'content-type': 'text/html' },
       });
+    }
+    if (next.kind === 'body-error') {
+      const failure = new TypeError(next.message, { cause: next.cause ?? 'socket hang up' });
+      return new Response(
+        new ReadableStream({ start: (controller) => controller.error(failure) }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
     }
     const envelope =
       next.kind === 'ok'

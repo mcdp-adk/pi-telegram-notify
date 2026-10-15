@@ -100,6 +100,40 @@ describe('failed send', () => {
     ]);
   });
 
+  test('a body read failure warns with its message and its cause', async (t) => {
+    // Independent contract: when the response body fails mid-read (a socket
+    // dying under Telegram's JSON), the warning carries the transport
+    // error's own message and cause — never `malformed response`, which
+    // would name the wrong culprit.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub([
+      { kind: 'ok' },
+      { kind: 'body-error', message: 'terminated', cause: new Error('socket hang up') },
+    ]);
+    t.after(() => stub.restore());
+    const cwd = makeTempRoot('send-failure-body-error');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'First run.' },
+      { kind: 'text', text: 'Second run.' },
+    ];
+    const { session, notifications } = await createScriptedSession({ scripts, cwd });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('first');
+    await stub.waitForRequests(1);
+    await session.prompt('second');
+    await stub.waitForRequests(2);
+    await waitForWarnings(notifications, 1);
+    await drain();
+    assert.equal(stub.requests.length, 2);
+    assert.deepEqual(notifications, [
+      {
+        message: 'pi-telegram-notify: failed to send notification: terminated: socket hang up',
+        level: 'warning',
+      },
+    ]);
+  });
+
   test('a non-envelope response warns as malformed with its HTTP status', async (t) => {
     // Independent contract: a body that is not the Bot API's JSON envelope —
     // a proxy error page, or JSON without a boolean `ok` — warns as
