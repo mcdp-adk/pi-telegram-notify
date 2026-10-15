@@ -31,8 +31,14 @@ async function failureCause(response: Response): Promise<string | undefined> {
   let envelope: unknown;
   try {
     envelope = await response.json();
-  } catch {
-    return `malformed response (HTTP ${response.status})`;
+  } catch (error) {
+    // A body that fails mid-read is a transport failure, not a malformed
+    // envelope: only unparseable JSON names the body. Anything else warns
+    // with its own message and cause, like a network error.
+    if (error instanceof SyntaxError) {
+      return `malformed response (HTTP ${response.status})`;
+    }
+    return networkCause(error);
   }
   if (typeof envelope !== 'object' || envelope === null) {
     return `malformed response (HTTP ${response.status})`;
