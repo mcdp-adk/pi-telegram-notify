@@ -70,7 +70,14 @@ in, or `Bad Request: chat not found` for an unknown chat id.
 
 ## Install
 
-Install the extension from this repository:
+Install the extension from npm:
+
+```bash
+pi install npm:@mcdp-adk/pi-telegram-notify
+```
+
+Or install it from this repository, which follows `main` instead of
+releases:
 
 ```bash
 pi install git:github.com/mcdp-adk/pi-telegram-notify
@@ -80,7 +87,7 @@ pi install git:github.com/mcdp-adk/pi-telegram-notify
 extensions) and start a session. To try it once without installing:
 
 ```bash
-pi -e git:github.com/mcdp-adk/pi-telegram-notify
+pi -e npm:@mcdp-adk/pi-telegram-notify
 ```
 
 ## Configure

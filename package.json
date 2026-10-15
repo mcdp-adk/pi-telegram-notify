@@ -1,7 +1,10 @@
 {
   "name": "@mcdp-adk/pi-telegram-notify",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "pi extension: send Telegram notifications",
+  "keywords": [
+    "pi-package"
+  ],
   "type": "module",
   "main": "src/extension.ts",
   "pi": {
