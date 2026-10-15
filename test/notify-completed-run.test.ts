@@ -210,6 +210,34 @@ describe('completed run', () => {
     );
   });
 
+  test('cuts long excerpts and escapes markup', async (t) => {
+    // Independent contract: the cut keeps the last 799 raw characters under
+    // a leading …, then escapes — so the tail's `<&>` arrives as entities
+    // and the session name's `&`/`<`/`>` do too. An escape-first
+    // implementation would keep 786 x's here, not 796.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-escape');
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: `${'x'.repeat(799)}<&>`, tickMs: 1_000 }];
+    const { session, sessionManager } = await createScriptedSession({ scripts, cwd, clock });
+    t.after(async () => shutdownSession(session));
+    sessionManager.appendSessionInfo('a&b<c>');
+
+    await session.prompt('do the thing');
+    const requests: RecordedTelegramRequest[] = await stub.waitForRequests(1);
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].body['text'],
+      `✅ <b>Completed</b> · 1s · #s${sessionManager.getSessionId().slice(-4)}\n` +
+        `${path.basename(cwd)} · a&amp;b&lt;c&gt;\n` +
+        `\n` +
+        `<blockquote expandable>…${'x'.repeat(796)}&lt;&amp;&gt;</blockquote>`,
+    );
+  });
+
   test('sends nothing outside the tui', async (t) => {
     // Independent contract: the same completed run under another mode stays
     // silent — and the run itself still works.
