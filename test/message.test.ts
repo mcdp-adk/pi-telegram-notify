@@ -3,12 +3,13 @@
 // the 800-character cut boundary.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderCompletedNotification } from '../src/message.ts';
+import { renderNotification } from '../src/message.ts';
 
-describe('renderCompletedNotification', () => {
+describe('renderNotification', () => {
   test('escapes markup in the project, session, and excerpt', () => {
     assert.equal(
-      renderCompletedNotification({
+      renderNotification({
+        status: 'completed',
         durationMs: 41_000,
         projectName: 'p<ro>&ject',
         sessionName: 's<e>&ssion',
@@ -25,7 +26,8 @@ describe('renderCompletedNotification', () => {
   test('leaves an exactly-800-character excerpt whole', () => {
     const text = 'x'.repeat(800);
     assert.equal(
-      renderCompletedNotification({
+      renderNotification({
+        status: 'completed',
         durationMs: 1_000,
         projectName: 'proj',
         sessionName: undefined,
@@ -38,7 +40,8 @@ describe('renderCompletedNotification', () => {
 
   test('cuts an 801-character excerpt to … plus the last 799', () => {
     assert.equal(
-      renderCompletedNotification({
+      renderNotification({
+        status: 'completed',
         durationMs: 1_000,
         projectName: 'proj',
         sessionName: undefined,

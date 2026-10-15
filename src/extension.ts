@@ -1,11 +1,11 @@
 // Extension entry: tracks the current run from pi's events and sends one
-// Telegram notification when a run completes or a dialog opens during a run
-// in a `tui` session. Only `tui` sessions notify; anything else returns
-// before the sender is reached. At session start a `tui` session with a
-// missing bot token or chat id warns once and then sends nothing. No handler
-// awaits a send, and no handler throws, so notifications can never disturb
-// the session. Later tickets add the error outcome and the send-failure
-// warning.
+// Telegram notification when a run completes, ends with an error, or opens
+// a dialog during a run in a `tui` session. Only `tui` sessions notify;
+// aborted runs, idle dialogs, and anything else return before the sender is
+// reached. At session start a `tui` session with a missing bot token or chat
+// id warns once and then sends nothing. No handler awaits a send, and no
+// handler throws, so notifications can never disturb the session. Later
+// tickets add the send-failure warning.
 import { basename } from 'node:path';
 import type {
   AgentActivityOutcome,
@@ -13,10 +13,10 @@ import type {
   ExtensionContext,
   MessageEndEvent,
 } from '@earendil-works/pi-coding-agent';
-import { renderCompletedNotification, renderDialogNotification } from './message.ts';
+import { renderNotification } from './message.ts';
 import { sendTelegramMessage } from './telegram.ts';
 
-type RunMessage = MessageEndEvent['message'];
+type RunMessage = Extract<MessageEndEvent['message'], { role: 'assistant' }>;
 
 interface ActiveRun {
   startTimeMs: number;
@@ -49,26 +49,67 @@ function latestReplyText(messages: RunMessage[]): string | undefined {
   return undefined;
 }
 
-function notifyCompleted(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
-  if (ctx.mode !== 'tui') {
-    return;
+// The run's last assistant message's error message, never an earlier
+// one's. A failed tool call carries no message of its own, so only the
+// run's outcome decides between the completed and error shapes.
+function lastErrorMessage(messages: RunMessage[]): string | undefined {
+  if (messages.length === 0) {
+    return undefined;
   }
-  if (misconfigured) {
-    return;
+  return messages[messages.length - 1].errorMessage;
+}
+
+// The single gate every notification passes: only `tui` sessions that
+// started configured send. Returns the credentials to send with.
+function telegramCredentials(
+  ctx: ExtensionContext,
+  misconfigured: boolean,
+): { botToken: string; chatId: string } | undefined {
+  if (ctx.mode !== 'tui' || misconfigured) {
+    return undefined;
   }
   const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
   const chatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
   if (!botToken || !chatId) {
+    return undefined;
+  }
+  return { botToken, chatId };
+}
+
+function sendIfReady(ctx: ExtensionContext, misconfigured: boolean, text: string): void {
+  const credentials = telegramCredentials(ctx, misconfigured);
+  if (credentials === undefined) {
     return;
   }
-  sendTelegramMessage(
-    botToken,
-    chatId,
-    renderCompletedNotification({
+  sendTelegramMessage(credentials.botToken, credentials.chatId, text);
+}
+
+function notifyCompleted(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
+  sendIfReady(
+    ctx,
+    misconfigured,
+    renderNotification({
+      status: 'completed',
       durationMs: Date.now() - run.startTimeMs,
       projectName: basename(ctx.cwd),
       sessionName: ctx.sessionManager.getSessionName(),
       sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      excerpt: latestReplyText(run.messages),
+    }),
+  );
+}
+
+function notifyError(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
+  sendIfReady(
+    ctx,
+    misconfigured,
+    renderNotification({
+      status: 'error',
+      durationMs: Date.now() - run.startTimeMs,
+      projectName: basename(ctx.cwd),
+      sessionName: ctx.sessionManager.getSessionName(),
+      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      detail: lastErrorMessage(run.messages),
       excerpt: latestReplyText(run.messages),
     }),
   );
@@ -80,25 +121,15 @@ function notifyDialog(
   excerpt: string | undefined,
   misconfigured: boolean,
 ): void {
-  if (ctx.mode !== 'tui') {
-    return;
-  }
-  if (misconfigured) {
-    return;
-  }
-  const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
-  const chatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
-  if (!botToken || !chatId) {
-    return;
-  }
-  sendTelegramMessage(
-    botToken,
-    chatId,
-    renderDialogNotification({
+  sendIfReady(
+    ctx,
+    misconfigured,
+    renderNotification({
+      status: 'dialog',
       projectName: basename(ctx.cwd),
       sessionName: ctx.sessionManager.getSessionName(),
       sessionTag: ctx.sessionManager.getSessionId().slice(-4),
-      title,
+      detail: title,
       excerpt,
     }),
   );
@@ -174,11 +205,15 @@ export default function (pi: ExtensionAPI): void {
   pi.on('agent_settled', (_event, ctx) => {
     const finished = run;
     run = undefined;
-    if (finished === undefined || finished.outcome !== 'completed') {
+    if (finished === undefined || (finished.outcome !== 'completed' && finished.outcome !== 'error')) {
       return;
     }
     try {
-      notifyCompleted(ctx, finished, misconfigured);
+      if (finished.outcome === 'error') {
+        notifyError(ctx, finished, misconfigured);
+      } else {
+        notifyCompleted(ctx, finished, misconfigured);
+      }
     } catch {
       // Notification bookkeeping must never break settlement.
     }
