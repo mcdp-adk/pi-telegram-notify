@@ -1,9 +1,9 @@
 // Extension entry: tracks the current run from pi's events and sends one
-// Telegram notification when a run completes in a `tui` session. Only
-// `tui` sessions and completed runs notify; anything else returns before the
-// sender is reached. No handler awaits a send, and no handler throws, so
-// notifications can never disturb the session. Later tickets add the error
-// outcome, dialogs, and the missing-configuration and send-failure warnings.
+// Telegram notification when a run completes or a dialog opens during a run
+// in a `tui` session. Only `tui` sessions notify; anything else returns
+// before the sender is reached. No handler awaits a send, and no handler
+// throws, so notifications can never disturb the session. Later tickets add
+// the error outcome and the missing-configuration and send-failure warnings.
 import { basename } from 'node:path';
 import type {
   AgentActivityOutcome,
@@ -11,7 +11,7 @@ import type {
   ExtensionContext,
   MessageEndEvent,
 } from '@earendil-works/pi-coding-agent';
-import { renderCompletedNotification } from './message.ts';
+import { renderCompletedNotification, renderDialogNotification } from './message.ts';
 import { sendTelegramMessage } from './telegram.ts';
 
 type RunMessage = MessageEndEvent['message'];
@@ -69,6 +69,28 @@ function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
   );
 }
 
+function notifyDialog(ctx: ExtensionContext, title: string | undefined, excerpt: string | undefined): void {
+  if (ctx.mode !== 'tui') {
+    return;
+  }
+  const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
+  const chatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
+  if (!botToken || !chatId) {
+    return;
+  }
+  sendTelegramMessage(
+    botToken,
+    chatId,
+    renderDialogNotification({
+      projectName: basename(ctx.cwd),
+      sessionName: ctx.sessionManager.getSessionName(),
+      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      title,
+      excerpt,
+    }),
+  );
+}
+
 export default function (pi: ExtensionAPI): void {
   let run: ActiveRun | undefined;
 
@@ -87,6 +109,21 @@ export default function (pi: ExtensionAPI): void {
   pi.on('agent_before_settle', (event) => {
     if (run !== undefined) {
       run.outcome = event.outcome;
+    }
+  });
+
+  pi.on('ui_prompt_start', (event, ctx) => {
+    // A dialog notifies only while its run is still in progress: a dialog
+    // opened from a command while idle sends nothing. The title is absent
+    // for title-less dialogs; the excerpt is the run's latest reply so far.
+    // pi does not await this handler, so the send stays fire-and-forget.
+    if (run === undefined || ctx.isIdle()) {
+      return;
+    }
+    try {
+      notifyDialog(ctx, event.title, latestReplyText(run.messages));
+    } catch {
+      // Notification bookkeeping must never break the dialog.
     }
   });
 

@@ -1,6 +1,6 @@
-// Message renderer: a pure function from a notification's parts to the
-// Telegram HTML text. It owns the template, duration formatting, cutting,
-// and escaping. Later tickets add the error and dialog shapes beside this one.
+// Message renderer: pure functions from a notification's parts to the
+// Telegram HTML text. They own the template, duration formatting, cutting,
+// and escaping. Later tickets add the error shape beside these.
 export interface CompletedNotificationParts {
   durationMs: number;
   projectName: string;
@@ -44,14 +44,41 @@ function cutExcerpt(raw: string): string {
   return escapeHtml(`…${tail}`);
 }
 
+function formatByline(projectName: string, sessionName: string | undefined): string {
+  return sessionName === undefined
+    ? escapeHtml(projectName)
+    : `${escapeHtml(projectName)} · ${escapeHtml(sessionName)}`;
+}
+
 export function renderCompletedNotification(parts: CompletedNotificationParts): string {
   const headline = `✅ <b>Completed</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
-  const byline =
-    parts.sessionName === undefined
-      ? escapeHtml(parts.projectName)
-      : `${escapeHtml(parts.projectName)} · ${escapeHtml(parts.sessionName)}`;
+  const byline = formatByline(parts.projectName, parts.sessionName);
   if (parts.excerpt === undefined) {
     return `${headline}\n${byline}`;
   }
   return `${headline}\n${byline}\n\n<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`;
+}
+
+export interface DialogNotificationParts {
+  projectName: string;
+  sessionName: string | undefined;
+  sessionTag: string;
+  // Raw dialog title; omitted when the dialog has none. Titles are short,
+  // so it is escaped but never cut.
+  title: string | undefined;
+  // Raw reply text; cutting and escaping happen here, never by the caller.
+  excerpt: string | undefined;
+}
+
+export function renderDialogNotification(parts: DialogNotificationParts): string {
+  const headline = `❓ <b>Waiting for you</b> · #s${parts.sessionTag}`;
+  const byline = formatByline(parts.projectName, parts.sessionName);
+  const body = [
+    parts.title === undefined ? undefined : `<b>${escapeHtml(parts.title)}</b>`,
+    parts.excerpt === undefined ? undefined : `<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`,
+  ].filter((line) => line !== undefined);
+  if (body.length === 0) {
+    return `${headline}\n${byline}`;
+  }
+  return `${headline}\n${byline}\n\n${body.join('\n')}`;
 }
