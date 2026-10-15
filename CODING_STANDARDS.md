@@ -20,7 +20,7 @@ How code in this repo is written, for whoever writes or reviews it. Collaboratio
 
 A test exists to buy confidence that the package works when the user really uses it, at the lowest maintenance cost. The closer a test is to how the package is used, the more confidence it gives (Kent C. Dodds), and a good test is sensitive to changes in behavior and insensitive to changes in structure (Kent Beck, Test Desiderata). Decide test layers, test doubles, and coverage by this principle. Here it means:
 
-- **One seam.** A test drives a pi SDK session that loads the package as pi does, with pi's faux provider scripting the model. Where the Telegram side is replaced is decided with the first test that reaches it.
+- **One seam.** A test drives a pi SDK session that loads the package as pi does, with pi's faux provider scripting the model. The Telegram side is replaced at `globalThis.fetch`: the sender calls the plain global fetch, and the harness stubs exactly that.
 - **Observable results.** Assert what the user or the model sees: tool results, tool descriptions, which tools exist, notices, leftover processes.
 - **A test proves its claim.** It fails when the behavior it names is removed. It waits on the observable event its claim depends on rather than on a fixed delay or an earlier event.
 - **Visible skips.** When the machine cannot run a test, the test skips with a reason (`t.skip`, `describe.skip`).
