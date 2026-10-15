@@ -5,7 +5,8 @@
 #
 # To release <version>:
 #   0. If `npm trust list @mcdp-adk/pi-telegram-notify` shows no trusted
-#      publisher, add one allowed to publish directly:
+#      publisher (both commands need the owner's npm 2FA login), add one
+#      allowed to publish directly:
 #      npm trust github @mcdp-adk/pi-telegram-notify --repo mcdp-adk/pi-telegram-notify --file publish.yml --allow-publish
 #      npm drops a new one that has not published within two days, so add it
 #      just before pushing the tag in step 2.
