@@ -19,10 +19,15 @@ import {
   SettingsManager,
   DefaultResourceLoader,
   createAgentSession,
+  createAgentSessionFromServices,
+  createAgentSessionRuntime,
+  createAgentSessionServices,
   ModelRuntime,
 } from '@earendil-works/pi-coding-agent';
 import type {
   AgentSession,
+  AgentSessionRuntime,
+  CreateAgentSessionRuntimeFactory,
   ExtensionAPI,
   ExtensionUIContext,
   InlineExtension,
@@ -242,6 +247,125 @@ export async function createScriptedSession({
   return { session, sessionManager, notifications };
 }
 
+export interface ScriptedRuntime {
+  runtime: AgentSessionRuntime;
+  notifications: RecordedNotification[];
+}
+
+// A pi runtime whose sessions load the package the way pi loads packages
+// (package discovery on the package.json pi manifest) — never by importing
+// src/extension.ts directly. The faux provider's remaining scripts and the
+// recorded notifications are shared across the runtime's sessions, so a
+// suite can prompt, replace the session through pi's real path, and prompt
+// again: `runtime.newSession()` in the same cwd tears the old runtime down
+// (`session_shutdown`), creates a new runtime, and invokes the extension
+// factory again, while the module cache for the cwd stays shared. Each
+// session binds with the same recording UI, so notices from every session
+// land in one list.
+export async function createScriptedRuntime({
+  scripts,
+  cwd,
+  mode = 'tui',
+  clock,
+  extensionFactories = [],
+  holdConfirm,
+  earlierPackages = [],
+}: ScriptedSessionOptions): Promise<ScriptedRuntime> {
+  const remaining: ScriptedReply[] = [...scripts];
+  const notifications: RecordedNotification[] = [];
+  const streamSimple = () => {
+    const stream = createAssistantMessageEventStream();
+    const next: ScriptedReply = remaining.shift() ?? { kind: 'text', text: 'done' };
+    queueMicrotask(() => {
+      if (clock !== undefined && next.tickMs !== undefined) {
+        clock.now += next.tickMs;
+      }
+      const msg = pushScripted(stream, next);
+      stream.end(msg);
+    });
+    return stream;
+  };
+  const packageExtensionFactory = async (pi: ExtensionAPI) => {
+    pi.registerProvider('faux', {
+      api: 'faux-s',
+      apiKey: 'test-key',
+      models: [MODEL],
+      streamSimple,
+    });
+  };
+  const repoRoot = path.resolve(import.meta.dirname, '..');
+  const uiContext = {
+    notify: (message: string, level?: 'info' | 'warning' | 'error') => {
+      notifications.push({ message, level });
+    },
+    select: async () => undefined,
+    confirm: async () => {
+      if (holdConfirm !== undefined) {
+        await holdConfirm.releaseConfirm();
+      }
+      return false;
+    },
+    input: async () => undefined,
+    editor: async () => undefined,
+    custom: async () => undefined,
+  } as unknown as ExtensionUIContext;
+  // In-memory credentials: the file-backed defaults would lazily write
+  // auth.json into agentDir (= cwd), recreating the directory after its
+  // test removed it.
+  const modelRuntime = await ModelRuntime.create({ modelsPath: null, credentials: AuthStorage.inMemory() });
+  const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+    cwd: runtimeCwd,
+    agentDir,
+    sessionManager,
+    sessionStartEvent,
+  }) => {
+    // SettingsManager.inMemory({ packages: [...] }) writes the packages
+    // list into InMemorySettingsStorage under scope "global";
+    // PackageManager reads the merged settings to find the package
+    // sources. Do NOT wrap in { globalSettings: {...} }.
+    const settingsManager = SettingsManager.inMemory({ packages: [...earlierPackages, repoRoot] });
+    const services = await createAgentSessionServices({
+      cwd: runtimeCwd,
+      agentDir,
+      settingsManager,
+      modelRuntime,
+      resourceLoaderOptions: {
+        extensionFactories: [packageExtensionFactory, ...extensionFactories],
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true,
+        systemPrompt: 'You are a test bot.',
+      },
+    });
+    const created = await createAgentSessionFromServices({
+      services,
+      sessionManager,
+      sessionStartEvent,
+      model: MODEL,
+    });
+    return { ...created, services, diagnostics: services.diagnostics };
+  };
+
+  const sessionManager = SessionManager.inMemory(cwd);
+  const runtime = await createAgentSessionRuntime(createRuntime, {
+    cwd,
+    agentDir: cwd,
+    sessionManager,
+  });
+  // The headless suite observes notices through the injected ui surface,
+  // like pi's CLI does. Binding emits the session start event, so the
+  // initial bind starts the first session and each rebind starts its
+  // replacement.
+  const bind = (session: AgentSession): Promise<void> =>
+    session.bindExtensions({ mode, uiContext }).then(() => undefined);
+  await bind(runtime.session);
+  runtime.setRebindSession(async (session) => {
+    await bind(session);
+  });
+
+  return { runtime, notifications };
+}
+
 // A tool the faux model can call, so a run holds more than one assistant
 // message. Its result text must never leak into excerpts or details: only
 // assistant text counts.
@@ -263,6 +387,13 @@ export const echoToolFactory: InlineExtension = async (pi: ExtensionAPI) => {
 export async function shutdownSession(session: AgentSession): Promise<void> {
   await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
   session.dispose();
+}
+
+// Ends every session on the runtime: sessions replaced earlier ended with
+// `session_shutdown` when pi tore them down, and disposing the runtime
+// shuts the current one down the same way.
+export async function shutdownRuntime(runtime: AgentSessionRuntime): Promise<void> {
+  await runtime.dispose();
 }
 
 // Answers the stub gives per Telegram request: a Bot API envelope, a network

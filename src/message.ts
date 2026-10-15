@@ -1,9 +1,15 @@
 // Message renderer: one pure function from a notification's parts to the
-// Telegram HTML text. It owns the template, duration formatting, cutting,
-// and escaping for every status.
+// Telegram HTML text. It owns selecting the reply text and error message
+// from the run's messages, then the template, duration formatting, cutting,
+// and escaping for every status: select → collapse → cut → escape happens
+// here, in one place. Callers pass the run's messages (plus status,
+// duration, session identity, and the dialog title), never pre-selected
+// text.
 // Identity of the session a notification belongs to: the project
 // containing the session, its display name when set, and the hashtag that
 // tells apart sessions in the same project.
+import type { RunMessage } from './run.ts';
+
 export interface SessionIdentity {
   projectName: string;
   sessionName: string | undefined;
@@ -14,24 +20,24 @@ export type NotificationParts =
   | (SessionIdentity & {
       status: 'completed';
       durationMs: number;
-      detail?: never;
-      excerpt: string | undefined;
+      messages: RunMessage[];
     })
   | (SessionIdentity & {
       status: 'error';
       durationMs: number;
-      // Raw error message; collapsing, cutting, and escaping happen here.
-      // Undefined or empty (after collapsing) omits the detail line.
-      detail: string | undefined;
-      excerpt: string | undefined;
+      // The run's messages: the detail is the run's last message's own
+      // error, the excerpt its last message with reply text. Collapsing,
+      // cutting, and escaping happen here.
+      messages: RunMessage[];
     })
   | (SessionIdentity & {
       status: 'dialog';
-      durationMs?: never;
       // Raw dialog title; omitted when the dialog has none. Titles are
       // short, so it is escaped but never cut.
-      detail: string | undefined;
-      excerpt: string | undefined;
+      title: string | undefined;
+      // The run's messages so far, or undefined when there is no run
+      // record; then there is no excerpt either.
+      messages: RunMessage[] | undefined;
     });;
 
 const MAX_EXCERPT_CHARS = 800;
@@ -52,6 +58,41 @@ function formatDuration(durationMs: number): string {
 
 function escapeHtml(raw: string): string {
   return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
+  if (typeof block !== 'object' || block === null) {
+    return false;
+  }
+  const record = block as { type?: unknown; text?: unknown };
+  return record.type === 'text' && typeof record.text === 'string';
+}
+
+// The run's last assistant message that has reply text, falling back within
+// the run and never reaching an earlier one. Thinking blocks are never text;
+// tool calls carry no text of their own.
+function latestReplyText(messages: RunMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+      continue;
+    }
+    const text = message.content.filter(isTextBlock).map((block) => block.text).join('');
+    if (text !== '') {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+// The run's last assistant message's error message, never an earlier
+// one's. A failed tool call carries no message of its own, so only the
+// run's outcome decides between the completed and error shapes.
+function lastErrorMessage(messages: RunMessage[]): string | undefined {
+  if (messages.length === 0) {
+    return undefined;
+  }
+  return messages[messages.length - 1].errorMessage;
 }
 
 // Keeps the last part of a long excerpt, starting with `…`, for 800
@@ -107,13 +148,17 @@ function formatHeadline(parts: NotificationParts): string {
 }
 
 function formatDetail(parts: NotificationParts): string | undefined {
-  if (parts.status === 'completed' || parts.detail === undefined) {
+  if (parts.status === 'completed') {
     return undefined;
   }
   if (parts.status === 'dialog') {
-    return `<b>${escapeHtml(parts.detail)}</b>`;
+    return parts.title === undefined ? undefined : `<b>${escapeHtml(parts.title)}</b>`;
   }
-  const detail = cutDetail(parts.detail);
+  const raw = lastErrorMessage(parts.messages);
+  if (raw === undefined) {
+    return undefined;
+  }
+  const detail = cutDetail(raw);
   return detail === undefined ? undefined : `<b>${detail}</b>`;
 }
 
@@ -125,8 +170,9 @@ export function renderNotification(parts: NotificationParts): string {
   if (detail !== undefined) {
     body.push(detail);
   }
-  if (parts.excerpt !== undefined) {
-    body.push(`<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`);
+  const excerpt = parts.messages === undefined ? undefined : latestReplyText(parts.messages);
+  if (excerpt !== undefined) {
+    body.push(`<blockquote expandable>${cutExcerpt(excerpt)}</blockquote>`);
   }
   if (body.length === 0) {
     return `${headline}\n${byline}`;
