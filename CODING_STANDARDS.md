@@ -14,13 +14,13 @@ How code in this repo is written, for whoever writes or reviews it. Collaboratio
 
 ## Comments
 
-- **Lasting behavior and its reason.** A comment says what the code guarantees and why. Review rounds, fix numbers, and tickets as future work belong in the PR.
+- **Lasting behavior and its reason.** A comment says what the code guarantees and why. Review rounds, fix numbers, and tickets belong in the PR; an outside issue the code relies on is named by its full URL. *checked for ticket numbers: `npm run lint`*
 
 ## Tests
 
 A test exists to buy confidence that the package works when the user really uses it, at the lowest maintenance cost. The closer a test is to how the package is used, the more confidence it gives (Kent C. Dodds), and a good test is sensitive to changes in behavior and insensitive to changes in structure (Kent Beck, Test Desiderata). Decide test layers, test doubles, and coverage by this principle. Here it means:
 
-- **One seam.** A test drives a pi SDK session that loads the package as pi does, with pi's faux provider scripting the model. The Telegram side is replaced at `globalThis.fetch`: the sender calls the plain global fetch, and the harness stubs exactly that.
+- **One seam.** A test drives a pi SDK session that loads the package as pi does, with pi's faux provider scripting the model. The Telegram side is replaced at `globalThis.fetch`: the sender calls the plain global fetch, and the harness stubs exactly that. *checked for imports of `src/`: `npm run lint`*
 - **Observable results.** Assert what the user or the model sees: tool results, tool descriptions, which tools exist, notices, leftover processes.
 - **A test proves its claim.** It fails when the behavior it names is removed. It waits on the observable event its claim depends on rather than on a fixed delay or an earlier event.
 - **Visible skips.** When the machine cannot run a test, the test skips with a reason (`t.skip`, `describe.skip`).

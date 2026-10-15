@@ -3,7 +3,8 @@
   "entry": [
     "test/run.ts",
     "test/*.test.ts",
-    "scripts/check-pr.ts"
+    "scripts/check-pr.ts",
+    "scripts/check-source.ts"
   ],
   "project": [
     "src/**/*.ts",

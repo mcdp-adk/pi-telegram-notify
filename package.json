@@ -17,7 +17,7 @@
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || exit 0",
-    "lint": "tsc -p . && knip",
+    "lint": "tsc -p . && knip && node scripts/check-source.ts",
     "test": "node test/run.ts"
   },
   "devDependencies": {
