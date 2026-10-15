@@ -1,26 +1,38 @@
-// Message renderer: pure functions from a notification's parts to the
+// Message renderer: one pure function from a notification's parts to the
 // Telegram HTML text. It owns the template, duration formatting, cutting,
-// and escaping. Later tickets add the dialog shape beside these two.
-export interface CompletedNotificationParts {
-  durationMs: number;
-  projectName: string;
-  sessionName: string | undefined;
-  sessionTag: string;
-  // Raw reply text; cutting and escaping happen here, never by the caller.
-  excerpt: string | undefined;
-}
-
-export interface ErrorNotificationParts {
-  durationMs: number;
-  projectName: string;
-  sessionName: string | undefined;
-  sessionTag: string;
-  // Raw error message; collapsing, cutting, and escaping happen here.
-  // Undefined or empty (after collapsing) omits the detail line.
-  detail: string | undefined;
-  // Raw reply text; cutting and escaping happen here, never by the caller.
-  excerpt: string | undefined;
-}
+// and escaping for every status.
+export type NotificationParts =
+  | {
+      status: 'completed';
+      durationMs: number;
+      projectName: string;
+      sessionName: string | undefined;
+      sessionTag: string;
+      detail?: never;
+      excerpt: string | undefined;
+    }
+  | {
+      status: 'error';
+      durationMs: number;
+      projectName: string;
+      sessionName: string | undefined;
+      sessionTag: string;
+      // Raw error message; collapsing, cutting, and escaping happen here.
+      // Undefined or empty (after collapsing) omits the detail line.
+      detail: string | undefined;
+      excerpt: string | undefined;
+    }
+  | {
+      status: 'dialog';
+      durationMs?: never;
+      projectName: string;
+      sessionName: string | undefined;
+      sessionTag: string;
+      // Raw dialog title; omitted when the dialog has none. Titles are
+      // short, so it is escaped but never cut.
+      detail: string | undefined;
+      excerpt: string | undefined;
+    };
 
 const MAX_EXCERPT_CHARS = 800;
 const MAX_DETAIL_CHARS = 300;
@@ -57,18 +69,6 @@ function cutExcerpt(raw: string): string {
   return escapeHtml(`…${tail}`);
 }
 
-export function renderCompletedNotification(parts: CompletedNotificationParts): string {
-  const headline = `✅ <b>Completed</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
-  const byline =
-    parts.sessionName === undefined
-      ? escapeHtml(parts.projectName)
-      : `${escapeHtml(parts.projectName)} · ${escapeHtml(parts.sessionName)}`;
-  if (parts.excerpt === undefined) {
-    return `${headline}\n${byline}`;
-  }
-  return `${headline}\n${byline}\n\n<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`;
-}
-
 // Collapses whitespace to single spaces and keeps the first part of a long
 // detail, ending with `…`, for 300 characters in total. The cut is on the
 // raw collapsed text, so an entity is never cut in half; a cut that would
@@ -89,18 +89,41 @@ function cutDetail(raw: string): string | undefined {
   return escapeHtml(`${head}…`);
 }
 
-export function renderErrorNotification(parts: ErrorNotificationParts): string {
-  const headline = `❌ <b>Error</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
-  const byline =
-    parts.sessionName === undefined
-      ? escapeHtml(parts.projectName)
-      : `${escapeHtml(parts.projectName)} · ${escapeHtml(parts.sessionName)}`;
+function formatByline(projectName: string, sessionName: string | undefined): string {
+  return sessionName === undefined
+    ? escapeHtml(projectName)
+    : `${escapeHtml(projectName)} · ${escapeHtml(sessionName)}`;
+}
+
+function formatHeadline(parts: NotificationParts): string {
+  switch (parts.status) {
+    case 'completed':
+      return `✅ <b>Completed</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
+    case 'error':
+      return `❌ <b>Error</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
+    case 'dialog':
+      return `❓ <b>Waiting for you</b> · #s${parts.sessionTag}`;
+  }
+}
+
+function formatDetail(parts: NotificationParts): string | undefined {
+  if (parts.status === 'completed' || parts.detail === undefined) {
+    return undefined;
+  }
+  if (parts.status === 'dialog') {
+    return `<b>${escapeHtml(parts.detail)}</b>`;
+  }
+  const detail = cutDetail(parts.detail);
+  return detail === undefined ? undefined : `<b>${detail}</b>`;
+}
+
+export function renderNotification(parts: NotificationParts): string {
+  const headline = formatHeadline(parts);
+  const byline = formatByline(parts.projectName, parts.sessionName);
   const body: string[] = [];
-  if (parts.detail !== undefined) {
-    const detail = cutDetail(parts.detail);
-    if (detail !== undefined) {
-      body.push(`<b>${detail}</b>`);
-    }
+  const detail = formatDetail(parts);
+  if (detail !== undefined) {
+    body.push(detail);
   }
   if (parts.excerpt !== undefined) {
     body.push(`<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`);
