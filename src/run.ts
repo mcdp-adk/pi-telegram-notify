@@ -48,15 +48,12 @@ export class RunTracker {
         outcome: AgentActivityOutcome | undefined;
       }
     | undefined;
-  // The run age a notification requires. Set at session start, so a value
-  // exported mid-session never changes a running session's mind.
-  private minRunMs: number;
+  // The run age a notification requires, fixed for the tracker's session,
+  // so a value exported mid-session never changes a running session's
+  // mind.
+  private readonly minRunMs: number;
 
   constructor(minRunMs: number) {
-    this.minRunMs = minRunMs;
-  }
-
-  setMinRunMs(minRunMs: number): void {
     this.minRunMs = minRunMs;
   }
 

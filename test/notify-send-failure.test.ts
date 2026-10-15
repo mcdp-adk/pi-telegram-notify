@@ -3,9 +3,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createScriptedRuntime,
   createScriptedSession,
   installTelegramFetchStub,
   makeTempRoot,
+  shutdownRuntime,
   shutdownSession,
   useTelegramEnv,
 } from './harness.ts';
@@ -37,28 +39,18 @@ describe('failed send', () => {
     // Telegram's `description` word for word. A paraphrase or a missing
     // warning fails here.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
-    const stub = installTelegramFetchStub([
-      { kind: 'ok' },
-      { kind: 'bot-error', description: 'Bad Request: chat not found' },
-    ]);
+    const stub = installTelegramFetchStub([{ kind: 'bot-error', description: 'Bad Request: chat not found' }]);
     t.after(() => stub.restore());
     const cwd = makeTempRoot('send-failure-bot-error');
-    const scripts: ScriptedReply[] = [
-      { kind: 'text', text: 'First run.' },
-      { kind: 'text', text: 'Second run.' },
-    ];
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'Only run.' }];
     const { session, notifications } = await createScriptedSession({ scripts, cwd });
     t.after(async () => shutdownSession(session));
 
-    // The warmup send succeeds, so the failure below warns whatever earlier
-    // suites in this process left behind: a success always re-arms.
-    await session.prompt('first');
+    await session.prompt('only');
     await stub.waitForRequests(1);
-    await session.prompt('second');
-    await stub.waitForRequests(2);
     await waitForWarnings(notifications, 1);
     await drain();
-    assert.equal(stub.requests.length, 2);
+    assert.equal(stub.requests.length, 1);
     assert.deepEqual(notifications, [
       {
         message: 'pi-telegram-notify: failed to send notification: Bad Request: chat not found',
@@ -73,25 +65,19 @@ describe('failed send', () => {
     // only the outer message fails here.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub([
-      { kind: 'ok' },
       { kind: 'network-error', message: 'fetch failed', cause: new Error('connect ECONNREFUSED') },
     ]);
     t.after(() => stub.restore());
     const cwd = makeTempRoot('send-failure-network');
-    const scripts: ScriptedReply[] = [
-      { kind: 'text', text: 'First run.' },
-      { kind: 'text', text: 'Second run.' },
-    ];
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'Only run.' }];
     const { session, notifications } = await createScriptedSession({ scripts, cwd });
     t.after(async () => shutdownSession(session));
 
-    await session.prompt('first');
+    await session.prompt('only');
     await stub.waitForRequests(1);
-    await session.prompt('second');
-    await stub.waitForRequests(2);
     await waitForWarnings(notifications, 1);
     await drain();
-    assert.equal(stub.requests.length, 2);
+    assert.equal(stub.requests.length, 1);
     assert.deepEqual(notifications, [
       {
         message: 'pi-telegram-notify: failed to send notification: fetch failed: connect ECONNREFUSED',
@@ -107,25 +93,19 @@ describe('failed send', () => {
     // would name the wrong culprit.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub([
-      { kind: 'ok' },
       { kind: 'body-error', message: 'terminated', cause: new Error('socket hang up') },
     ]);
     t.after(() => stub.restore());
     const cwd = makeTempRoot('send-failure-body-error');
-    const scripts: ScriptedReply[] = [
-      { kind: 'text', text: 'First run.' },
-      { kind: 'text', text: 'Second run.' },
-    ];
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'Only run.' }];
     const { session, notifications } = await createScriptedSession({ scripts, cwd });
     t.after(async () => shutdownSession(session));
 
-    await session.prompt('first');
+    await session.prompt('only');
     await stub.waitForRequests(1);
-    await session.prompt('second');
-    await stub.waitForRequests(2);
     await waitForWarnings(notifications, 1);
     await drain();
-    assert.equal(stub.requests.length, 2);
+    assert.equal(stub.requests.length, 1);
     assert.deepEqual(notifications, [
       {
         message: 'pi-telegram-notify: failed to send notification: terminated: socket hang up',
@@ -141,7 +121,6 @@ describe('failed send', () => {
     // The success between the two failures re-arms the warning, so both warn.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub([
-      { kind: 'ok' },
       { kind: 'malformed', status: 502, body: '<html><body>Bad Gateway</body></html>' },
       { kind: 'ok' },
       { kind: 'malformed', status: 200, body: '{"foo":1}' },
@@ -152,20 +131,17 @@ describe('failed send', () => {
       { kind: 'text', text: 'First run.' },
       { kind: 'text', text: 'Second run.' },
       { kind: 'text', text: 'Third run.' },
-      { kind: 'text', text: 'Fourth run.' },
     ];
     const { session, notifications } = await createScriptedSession({ scripts, cwd });
     t.after(async () => shutdownSession(session));
 
     await session.prompt('first');
-    await stub.waitForRequests(1);
     await session.prompt('second');
     await session.prompt('third');
-    await session.prompt('fourth');
-    await stub.waitForRequests(4);
+    await stub.waitForRequests(3);
     await waitForWarnings(notifications, 2);
     await drain();
-    assert.equal(stub.requests.length, 4);
+    assert.equal(stub.requests.length, 3);
     assert.deepEqual(notifications, [
       {
         message: 'pi-telegram-notify: failed to send notification: malformed response (HTTP 502)',
@@ -185,7 +161,6 @@ describe('failed send', () => {
     // re-arm.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub([
-      { kind: 'ok' },
       { kind: 'bot-error', description: 'Bad Request: chat not found' },
       { kind: 'bot-error', description: 'Bad Request: chat not found' },
       { kind: 'ok' },
@@ -198,21 +173,18 @@ describe('failed send', () => {
       { kind: 'text', text: 'Second run.' },
       { kind: 'text', text: 'Third run.' },
       { kind: 'text', text: 'Fourth run.' },
-      { kind: 'text', text: 'Fifth run.' },
     ];
     const { session, notifications } = await createScriptedSession({ scripts, cwd });
     t.after(async () => shutdownSession(session));
 
     await session.prompt('first');
-    await stub.waitForRequests(1);
     await session.prompt('second');
     await session.prompt('third');
     await session.prompt('fourth');
-    await session.prompt('fifth');
-    await stub.waitForRequests(5);
+    await stub.waitForRequests(4);
     await waitForWarnings(notifications, 2);
     await drain();
-    assert.equal(stub.requests.length, 5);
+    assert.equal(stub.requests.length, 4);
     assert.deepEqual(notifications, [
       {
         message: 'pi-telegram-notify: failed to send notification: Bad Request: chat not found',
@@ -259,5 +231,46 @@ describe('failed send', () => {
     await drain();
     assert.equal(stub.requests.length, 2);
     assert.deepEqual(notifications, [] as RecordedNotification[]);
+  });
+
+  test('a restarted session warns again about an ongoing outage', async (t) => {
+    // Independent contract: the warn-once latch belongs to the session,
+    // not the process. pi's `/new` tears the current runtime down
+    // (`session_shutdown` fires), then creates a new runtime in the same
+    // cwd and invokes the extension factory again, so the replacement
+    // session gets a new closure while the module cache stays shared.
+    // While the outage continues, the replacement session's failed send
+    // warns again. A process-global latch stays silent after the restart
+    // and fails this test at its second waitForWarnings.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub([
+      { kind: 'bot-error', description: 'Bad Request: chat not found' },
+      { kind: 'bot-error', description: 'Bad Request: chat not found' },
+    ]);
+    t.after(() => stub.restore());
+    const cwd = makeTempRoot('send-failure-session-restart');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'First run.' },
+      { kind: 'text', text: 'Second run.' },
+    ];
+    const { runtime, notifications } = await createScriptedRuntime({ scripts, cwd });
+    t.after(async () => shutdownRuntime(runtime));
+    const expected: RecordedNotification = {
+      message: 'pi-telegram-notify: failed to send notification: Bad Request: chat not found',
+      level: 'warning',
+    };
+
+    await runtime.session.prompt('first');
+    await stub.waitForRequests(1);
+    await waitForWarnings(notifications, 1);
+    // pi's real replacement path in the same cwd: the old session ends
+    // with `session_shutdown` and the replacement session starts anew.
+    await runtime.newSession();
+    await runtime.session.prompt('second');
+    await stub.waitForRequests(2);
+    await waitForWarnings(notifications, 2);
+    await drain();
+    assert.equal(stub.requests.length, 2);
+    assert.deepEqual(notifications, [expected, expected]);
   });
 });

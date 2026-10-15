@@ -124,7 +124,9 @@ behaves as the default. The token and chat id are not checked at startup: a
 wrong token or chat id shows up only as a failed send. A failed send warns
 in pi with Telegram's reason, for example `pi-telegram-notify: failed to
 send notification: Unauthorized`. Only the first failure in a row warns
-until a send succeeds again, and a failed send is never retried. When
+per session until a send succeeds again, and a failed send is never
+retried. After `/new` or in another session, an ongoing outage warns once
+again in the new session. When
 nothing arrives, check both values first (`Unauthorized` means the token is
 wrong, `Bad Request: chat not found` means the chat id is).
 
