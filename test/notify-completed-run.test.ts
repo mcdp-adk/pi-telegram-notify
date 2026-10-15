@@ -263,6 +263,33 @@ describe('completed run', () => {
     );
   });
 
+  test('leaves 800 characters whole and cuts 801 to … plus the last 799', async (t) => {
+    // Independent contract: the cut boundary lives at 800 raw characters.
+    // An 801-character reply loses exactly its first two characters under
+    // the leading ….
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-boundary');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'a'.repeat(800), tickMs: 1_000 },
+      { kind: 'text', text: `yy${'b'.repeat(799)}`, tickMs: 1_000 },
+    ];
+    const { session, sessionManager } = await createScriptedSession({ scripts, cwd, clock });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('first');
+    await session.prompt('second');
+    const requests: RecordedTelegramRequest[] = await stub.waitForRequests(2);
+    assert.equal(requests.length, 2);
+    const header =
+      `✅ <b>Completed</b> · 1s · #s${sessionManager.getSessionId().slice(-4)}\n${path.basename(cwd)}\n\n`;
+    assert.equal(requests[0].body['text'], `${header}<blockquote expandable>${'a'.repeat(800)}</blockquote>`);
+    assert.equal(requests[1].body['text'], `${header}<blockquote expandable>…${'b'.repeat(799)}</blockquote>`);
+  });
+
   test('sends nothing outside the tui', async (t) => {
     // Independent contract: the same completed run under another mode stays
     // silent — and the run itself still works.
