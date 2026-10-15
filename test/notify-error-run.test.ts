@@ -320,6 +320,58 @@ describe('error run', () => {
     );
   });
 
+  test('sends nothing when another extension aborts the run during settle', async (t) => {
+    // Regression: another extension may call `ctx.abort()` in
+    // `agent_before_settle` after this extension already cached a completed
+    // outcome. The settle event still reports aborted, so nothing is sent.
+    // The second prompt proves the silence: it notifies once, so the aborted
+    // settle itself sent nothing.
+    let abortOnce = true;
+    const abortDuringSettleFactory: InlineExtension = async (pi: ExtensionAPI) => {
+      pi.on('agent_before_settle', (_event, ctx) => {
+        if (abortOnce) {
+          abortOnce = false;
+          ctx.abort();
+        }
+      });
+    };
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('error-abort-during-settle');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'First run.', tickMs: 1_000 },
+      { kind: 'text', text: 'Second run.', tickMs: 1_000 },
+    ];
+    const { session, sessionManager } = await createScriptedSession({
+      scripts,
+      cwd,
+      clock,
+      extensionFactories: [abortDuringSettleFactory],
+    });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('first');
+    // The abort settled the run: give the fire-and-forget send a chance to
+    // (not) record, then prove the stub works with a completing run.
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(stub.requests.length, 0);
+
+    await session.prompt('second');
+    const requests = await stub.waitForRequests(1);
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].body['text'],
+      `✅ <b>Completed</b> · 1s · #s${sessionManager.getSessionId().slice(-4)}\n` +
+        `${path.basename(cwd)}\n` +
+        `\n` +
+        `<blockquote expandable>Second run.</blockquote>`,
+    );
+  });
+
   test('a misconfigured session sends nothing for an error run', async (t) => {
     // Merge seam: the missing-configuration gate threads through the error
     // path too — with neither variable set, an error run warns at session
