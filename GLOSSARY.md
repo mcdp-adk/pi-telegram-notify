@@ -34,6 +34,10 @@ One Telegram message the extension sends about a session.
 The setting that decides which moments in a run produce notifications and how much each says; each level includes everything below it.
 _Avoid_: Verbosity, mode
 
+**Progress message**:
+The one notification level 3 sends silently at the start of a run and keeps editing in place until the run ends.
+_Avoid_: status message, live message
+
 **Sub-agent**:
 A separate pi process another extension starts to carry out a task for a session.
 _Avoid_: Child, delegate
