@@ -1,3 +1,105 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+// Extension entry: tracks the current run from pi's events and sends one
+// Telegram notification when a run completes in a `tui` session. Only
+// `tui` sessions and completed runs notify; anything else returns before the
+// sender is reached. No handler awaits a send, and no handler throws, so
+// notifications can never disturb the session. Later tickets add the error
+// outcome, dialogs, and the missing-configuration and send-failure warnings.
+import { basename } from 'node:path';
+import type {
+  AgentActivityOutcome,
+  ExtensionAPI,
+  ExtensionContext,
+  MessageEndEvent,
+} from '@earendil-works/pi-coding-agent';
+import { renderCompletedNotification } from './message.ts';
+import { sendTelegramMessage } from './telegram.ts';
 
-export default function (_pi: ExtensionAPI): void {}
+type RunMessage = MessageEndEvent['message'];
+
+interface ActiveRun {
+  startTimeMs: number;
+  messages: RunMessage[];
+  outcome: AgentActivityOutcome | undefined;
+}
+
+function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
+  if (typeof block !== 'object' || block === null) {
+    return false;
+  }
+  const record = block as { type?: unknown; text?: unknown };
+  return record.type === 'text' && typeof record.text === 'string';
+}
+
+// The run's last assistant message that has reply text, falling back within
+// the run and never reaching an earlier one. Thinking blocks are never text;
+// tool calls carry no text of their own.
+function latestReplyText(messages: RunMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+      continue;
+    }
+    const text = message.content.filter(isTextBlock).map((block) => block.text).join('');
+    if (text !== '') {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
+  if (ctx.mode !== 'tui') {
+    return;
+  }
+  const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
+  const chatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
+  if (!botToken || !chatId) {
+    return;
+  }
+  sendTelegramMessage(
+    botToken,
+    chatId,
+    renderCompletedNotification({
+      durationMs: Date.now() - run.startTimeMs,
+      projectName: basename(ctx.cwd),
+      sessionName: ctx.sessionManager.getSessionName(),
+      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      excerpt: latestReplyText(run.messages),
+    }),
+  );
+}
+
+export default function (pi: ExtensionAPI): void {
+  let run: ActiveRun | undefined;
+
+  pi.on('before_agent_start', () => {
+    if (run === undefined) {
+      run = { startTimeMs: Date.now(), messages: [], outcome: undefined };
+    }
+  });
+
+  pi.on('message_end', (event) => {
+    if (run !== undefined && event.message.role === 'assistant') {
+      run.messages.push(event.message);
+    }
+  });
+
+  pi.on('agent_before_settle', (event) => {
+    if (run !== undefined) {
+      run.outcome = event.outcome;
+    }
+  });
+
+  pi.on('agent_settled', (_event, ctx) => {
+    const finished = run;
+    run = undefined;
+    if (finished === undefined || finished.outcome !== 'completed') {
+      return;
+    }
+    try {
+      notifyCompleted(ctx, finished);
+    } catch {
+      // Notification bookkeeping must never break settlement.
+    }
+  });
+}
