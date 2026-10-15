@@ -74,7 +74,7 @@ export interface TestClock {
 // Scripted model replies, consumed in order per prompt turn. `tickMs`
 // advances the test clock when the step is consumed.
 export type ScriptedReply =
-  | { kind: 'text'; text: string; tickMs?: number }
+  | { kind: 'text'; text: string; tickMs?: number; done?: 'stop' | 'length' }
   | { kind: 'tool'; name: string; args?: JsonObject; text?: string; tickMs?: number }
   | { kind: 'error'; text?: string; errorMessage: string; tickMs?: number };
 
@@ -109,10 +109,11 @@ function pushScripted(stream: AssistantMessageEventStream, next: ScriptedReply):
     }
     stream.push({ type: 'error', reason: 'error', error: msg });
   } else {
-    msg = { ...MSG_BASE(), content: [{ type: 'text', text: next.text }], stopReason: 'stop' };
+    const done = next.done ?? 'stop';
+    msg = { ...MSG_BASE(), content: [{ type: 'text', text: next.text }], stopReason: done };
     stream.push({ type: 'start', partial: msg });
     stream.push({ type: 'text_delta', contentIndex: 0, delta: next.text, partial: msg });
-    stream.push({ type: 'done', reason: 'stop', message: msg });
+    stream.push({ type: 'done', reason: done, message: msg });
   }
   return msg;
 }

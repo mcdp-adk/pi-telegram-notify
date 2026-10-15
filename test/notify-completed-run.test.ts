@@ -188,6 +188,31 @@ describe('completed run', () => {
     );
   });
 
+  test('notifies a length-cut reply as completed', async (t) => {
+    // Independent contract: a reply cut off by the output token limit still
+    // completes the run, and the excerpt shows where it was cut.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-length');
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'Cut off mid-sentence.', tickMs: 1_000, done: 'length' }];
+    const { session, sessionManager } = await createScriptedSession({ scripts, cwd, clock });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('do the thing');
+    const requests: RecordedTelegramRequest[] = await stub.waitForRequests(1);
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].body['text'],
+      `✅ <b>Completed</b> · 1s · #s${sessionManager.getSessionId().slice(-4)}\n` +
+        `${path.basename(cwd)}\n` +
+        `\n` +
+        `<blockquote expandable>Cut off mid-sentence.</blockquote>`,
+    );
+  });
+
   test('sends the header alone when the run has no reply text', async (t) => {
     // Independent contract: with no assistant text in the run, the message
     // is the header alone — no blank line, no empty quote.
