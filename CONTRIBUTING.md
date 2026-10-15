@@ -27,6 +27,7 @@ Conventional Commits:
 
 Acceptance criteria are optional: an issue lists them when the owner wants a checklist of what done means. When it does:
 
+- **Observable.** Each criterion names a result the developer or the model can observe, so a test through the seam can prove it.
 - Only the owner rewords an acceptance criterion; an agent proposes the new wording in conversation.
 - Every ticked acceptance criterion has evidence.
 - An issue closes only with every criterion ticked. *checked: conventions*
