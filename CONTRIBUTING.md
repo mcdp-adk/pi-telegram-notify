@@ -22,6 +22,7 @@ Conventional Commits:
 - **Body.** The template at `.github/pull_request_template.md` gives the body its shape: the closing line — `Closes #N` when the PR finishes the issue, `Refs #N` when it does not — then `Summary`, `Evidence`, and `Merge Danger`. How to write each section is the `pr` skill's to teach. *checked: conventions*
 - **Checks.** The `conventions` workflow checks every rule marked *checked: conventions*. A rule about an issue is checked for each issue a PR closes, once the PR is ready, and a failure names what to fix.
 - **Stacked PRs.** A rebase or squash merge gives a PR's commits new hashes, so a PR built on it still carries the old ones and conflicts with `main`; once the base PR merges, move the stacked PR's own commits with `git rebase --onto origin/main <old base tip>`.
+- **Releases.** A release is a PR titled `chore: release <version>`; the steps live in the header of `.github/workflows/publish.yml`.
 
 ## Acceptance criteria
 
