@@ -53,6 +53,8 @@ describe('completed run', () => {
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
     });
+    // The notification must ring: the request carries no `disable_notification` key.
+    assert.equal('disable_notification' in request.body, false);
   });
 
   test('writes minutes and hours compactly', async (t) => {
