@@ -1,7 +1,7 @@
-// Extension entry: tracks the current run from pi's events and sends one
-// Telegram notification when a run completes, ends with an error, or opens
-// a dialog during a run in a `tui` session. Only `tui` sessions notify;
-// aborted runs, idle dialogs, runs younger than
+// Extension entry: composes the run tracker, the message renderer, and
+// the Telegram sender to send one notification when a run completes, ends
+// with an error, or opens a dialog during a run in a `tui` session. Only
+// `tui` sessions notify; aborted runs, idle dialogs, runs younger than
 // PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS (default 60), and anything else return
 // before the sender is reached. At session start a `tui` session with a
 // missing bot token or chat id warns once and then sends nothing, as does an
@@ -12,22 +12,14 @@
 // the session.
 import { basename } from 'node:path';
 import type {
-  AgentActivityOutcome,
   ExtensionAPI,
   ExtensionContext,
-  MessageEndEvent,
 } from '@earendil-works/pi-coding-agent';
 import { renderNotification } from './message.ts';
 import type { SessionIdentity } from './message.ts';
+import type { DialogDue, RunMessage, SettledRun } from './run.ts';
+import { RunTracker } from './run.ts';
 import { sendTelegramMessage } from './telegram.ts';
-
-type RunMessage = Extract<MessageEndEvent['message'], { role: 'assistant' }>;
-
-interface ActiveRun {
-  startTimeMs: number;
-  messages: RunMessage[];
-  outcome: AgentActivityOutcome | undefined;
-}
 
 // Minimum run age a notification requires, in seconds: a run that stops or
 // opens a dialog sooner stays silent, so a quick run the developer watched
@@ -127,7 +119,7 @@ function sessionIdentity(ctx: ExtensionContext): SessionIdentity {
 
 function notifyCompleted(
   ctx: ExtensionContext,
-  run: ActiveRun,
+  run: SettledRun,
   misconfigured: boolean,
   onFailure: (cause: string) => void,
 ): void {
@@ -136,7 +128,7 @@ function notifyCompleted(
     misconfigured,
     renderNotification({
       status: 'completed',
-      durationMs: Date.now() - run.startTimeMs,
+      durationMs: run.durationMs,
       ...sessionIdentity(ctx),
       excerpt: latestReplyText(run.messages),
     }),
@@ -146,7 +138,7 @@ function notifyCompleted(
 
 function notifyError(
   ctx: ExtensionContext,
-  run: ActiveRun,
+  run: SettledRun,
   misconfigured: boolean,
   onFailure: (cause: string) => void,
 ): void {
@@ -155,7 +147,7 @@ function notifyError(
     misconfigured,
     renderNotification({
       status: 'error',
-      durationMs: Date.now() - run.startTimeMs,
+      durationMs: run.durationMs,
       ...sessionIdentity(ctx),
       detail: lastErrorMessage(run.messages),
       excerpt: latestReplyText(run.messages),
@@ -167,7 +159,7 @@ function notifyError(
 function notifyDialog(
   ctx: ExtensionContext,
   title: string | undefined,
-  excerpt: string | undefined,
+  due: DialogDue,
   misconfigured: boolean,
   onFailure: (cause: string) => void,
 ): void {
@@ -178,20 +170,19 @@ function notifyDialog(
       status: 'dialog',
       ...sessionIdentity(ctx),
       detail: title,
-      excerpt,
+      excerpt: due.messages === undefined ? undefined : latestReplyText(due.messages),
     }),
     onFailure,
   );
 }
 
 export default function (pi: ExtensionAPI): void {
-  let run: ActiveRun | undefined;
+  // The session's run, tracked in one module; the handlers below only
+  // translate pi events into its calls and render what it returns.
+  const tracker = new RunTracker(DEFAULT_MIN_RUN_SECONDS * 1000);
   // Set at session start: a session that started without its configuration
   // warns once and then sends nothing, even if the variables appear later.
   let misconfigured = false;
-  // Set at session start: the run age a notification requires. Read here so
-  // a value exported mid-session never changes a running session's mind.
-  let minRunMs = DEFAULT_MIN_RUN_SECONDS * 1000;
   // The latest event's context, refreshed on every event the extension
   // handles. A send settles later, and a context captured earlier throws
   // after a session replacement or a reload, so the failure warning always
@@ -246,7 +237,7 @@ export default function (pi: ExtensionAPI): void {
         );
       }
       const minRun = minRunDurationMs();
-      minRunMs = minRun.ms;
+      tracker.setMinRunMs(minRun.ms);
       if (minRun.invalid !== undefined) {
         ctx.ui.notify(
           `pi-telegram-notify: PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS is invalid ("${minRun.invalid}"); using the default of ${DEFAULT_MIN_RUN_SECONDS} seconds.`,
@@ -264,23 +255,17 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('before_agent_start', (_event, ctx) => {
     latestCtx = ctx;
-    if (run === undefined) {
-      run = { startTimeMs: Date.now(), messages: [], outcome: undefined };
-    }
+    tracker.beginRun();
   });
 
   pi.on('message_end', (event, ctx) => {
     latestCtx = ctx;
-    if (run !== undefined && event.message.role === 'assistant') {
-      run.messages.push(event.message);
-    }
+    tracker.addMessage(event.message);
   });
 
   pi.on('agent_before_settle', (event, ctx) => {
     latestCtx = ctx;
-    if (run !== undefined) {
-      run.outcome = event.outcome;
-    }
+    tracker.cacheOutcome(event.outcome);
   });
 
   pi.on('ui_prompt_start', (event, ctx) => {
@@ -293,18 +278,12 @@ export default function (pi: ExtensionAPI): void {
     // reply exists so far, possibly none. The title is absent for
     // title-less dialogs. pi does not await this handler, so the send stays
     // fire-and-forget.
-    if (ctx.isIdle()) {
-      return;
-    }
-    // A dialog in a young run stays silent: under the minimum the developer
-    // is still watching. With no run record the run just started, so
-    // elapsed counts from zero and notifies only when the minimum is zero.
-    const dialogAgeMs = run === undefined ? 0 : Date.now() - run.startTimeMs;
-    if (dialogAgeMs < minRunMs) {
+    const due = tracker.dialogDue(ctx.isIdle());
+    if (due === undefined) {
       return;
     }
     try {
-      notifyDialog(ctx, event.title, run === undefined ? undefined : latestReplyText(run.messages), misconfigured, warnSendFailure);
+      notifyDialog(ctx, event.title, due, misconfigured, warnSendFailure);
     } catch {
       // Notification bookkeeping must never break the dialog.
     }
@@ -312,25 +291,12 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('agent_settled', (event, ctx) => {
     latestCtx = ctx;
-    // The settle event reports whether the run was aborted (Escape or
-    // another extension's `ctx.abort()`), whatever outcome was cached
-    // earlier: an aborted run sends nothing.
-    if (event.aborted) {
-      run = undefined;
-      return;
-    }
-    const finished = run;
-    run = undefined;
-    if (finished === undefined || (finished.outcome !== 'completed' && finished.outcome !== 'error')) {
-      return;
-    }
-    // A short run stays silent, whatever its outcome: the developer watched
-    // a run this quick and needs no ring for it.
-    if (Date.now() - finished.startTimeMs < minRunMs) {
+    const finished = tracker.settle(event.aborted);
+    if (finished === undefined) {
       return;
     }
     try {
-      if (finished.outcome === 'error') {
+      if (finished.status === 'error') {
         notifyError(ctx, finished, misconfigured, warnSendFailure);
       } else {
         notifyCompleted(ctx, finished, misconfigured, warnSendFailure);
