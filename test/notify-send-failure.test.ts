@@ -252,8 +252,11 @@ describe('failed send', () => {
     // Shuts down without disposing the runner, so the recorded UI context
     // stays live and the late failure reaches the warning path.
     await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'reload' });
-    // Lets the delayed failure land after the shutdown was handled.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // The delayed failure lands after the shutdown was handled: no fixed
+    // delay, the stub signals the settled fetch and the drain flushes the
+    // warning path that follows it.
+    await stub.waitForSettled(2);
+    await drain();
     assert.equal(stub.requests.length, 2);
     assert.deepEqual(notifications, [] as RecordedNotification[]);
   });

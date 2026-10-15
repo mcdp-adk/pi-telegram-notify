@@ -273,6 +273,9 @@ export interface RecordedTelegramRequest {
 export interface TelegramFetchStub {
   readonly requests: RecordedTelegramRequest[];
   waitForRequests(count: number): Promise<RecordedTelegramRequest[]>;
+  // Waits until `count` Telegram fetches settled (answered or failed), so
+  // a test can observe a late failure without a fixed delay.
+  waitForSettled(count: number): Promise<void>;
   restore(): void;
 }
 
@@ -284,6 +287,7 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
   const requests: RecordedTelegramRequest[] = [];
   const realFetch = globalThis.fetch;
   let consumed = 0;
+  let settled = 0;
 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -306,6 +310,9 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
     if ((next.kind === 'bot-error' || next.kind === 'network-error' || next.kind === 'malformed') && next.delayMs !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, next.delayMs));
     }
+    // No await follows: every branch below returns or throws in this
+    // microtask, so the fetch settles together with this count.
+    settled += 1;
     if (next.kind === 'network-error') {
       throw new Error(next.message, { cause: next.cause ?? 'socket hang up' });
     }
@@ -345,6 +352,17 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       throw new Error(`timed out waiting for ${count} Telegram requests (got ${requests.length})`);
+    },
+    async waitForSettled(count: number): Promise<void> {
+      // Same polling shape as `waitForRequests`: the attempt cap only
+      // guards hangs, and no clock is read.
+      for (let attempt = 0; attempt < 1000; attempt += 1) {
+        if (settled >= count) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error(`timed out waiting for ${count} settled Telegram requests (got ${settled})`);
     },
     restore() {
       globalThis.fetch = realFetch;
