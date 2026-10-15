@@ -1,4 +1,4 @@
-// Ticket #20: a `tui` session with missing configuration warns once at
+// A `tui` session with missing configuration warns once at
 // session start and then sends nothing.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';

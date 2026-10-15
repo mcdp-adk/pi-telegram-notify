@@ -1,4 +1,4 @@
-// Ticket #18: an error run notifies with the error message, an aborted run
+// An error run notifies with the error message, an aborted run
 // stays silent, and a failed tool call still completes. All assertions go
 // through the SDK seam (a scripted session plus the Telegram fetch stub),
 // never the renderer or sender directly.

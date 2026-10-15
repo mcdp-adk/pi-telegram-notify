@@ -1,4 +1,4 @@
-// Ticket #19: a dialog opened during a run sends one Telegram notification
+// A dialog opened during a run sends one Telegram notification
 // that rings. A dialog opened while no run is in progress stays silent.
 import fs from 'node:fs';
 import path from 'node:path';

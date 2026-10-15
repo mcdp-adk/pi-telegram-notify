@@ -1,4 +1,4 @@
-// Ticket #21: a send that fails warns in pi with the real cause, only the
+// A send that fails warns in pi with the real cause, only the
 // first failure in a row, and is never retried.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';

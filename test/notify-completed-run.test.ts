@@ -1,4 +1,4 @@
-// Ticket #17: a completed run sends one Telegram notification that rings.
+// A completed run sends one Telegram notification that rings.
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
