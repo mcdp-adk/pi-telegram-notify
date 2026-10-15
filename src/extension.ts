@@ -2,10 +2,11 @@
 // Telegram notification when a run completes in a `tui` session. Only
 // `tui` sessions and completed runs notify; anything else returns before the
 // sender is reached. At session start a `tui` session with a missing bot
-// token or chat id warns once and then sends nothing. No handler awaits a
-// send, and no handler throws, so notifications can never disturb the
-// session. Later tickets add the error outcome, dialogs, and the
-// send-failure warning.
+// token or chat id warns once and then sends nothing. A send that fails
+// warns once per outage with the real cause, through the latest event's
+// context. No handler awaits a send, and no handler throws, so
+// notifications can never disturb the session. Later tickets add the error
+// outcome and dialogs.
 import { basename } from 'node:path';
 import type {
   AgentActivityOutcome,
@@ -49,7 +50,12 @@ function latestReplyText(messages: RunMessage[]): string | undefined {
   return undefined;
 }
 
-function notifyCompleted(ctx: ExtensionContext, run: ActiveRun, misconfigured: boolean): void {
+function notifyCompleted(
+  ctx: ExtensionContext,
+  run: ActiveRun,
+  misconfigured: boolean,
+  onFailure: (cause: string) => void,
+): void {
   if (ctx.mode !== 'tui') {
     return;
   }
@@ -71,6 +77,7 @@ function notifyCompleted(ctx: ExtensionContext, run: ActiveRun, misconfigured: b
       sessionTag: ctx.sessionManager.getSessionId().slice(-4),
       excerpt: latestReplyText(run.messages),
     }),
+    onFailure,
   );
 }
 
@@ -79,8 +86,37 @@ export default function (pi: ExtensionAPI): void {
   // Set at session start: a session that started without its configuration
   // warns once and then sends nothing, even if the variables appear later.
   let misconfigured = false;
+  // The latest event's context, refreshed on every event the extension
+  // handles. A send settles later, and a context captured earlier throws
+  // after a session replacement or a reload, so the failure warning always
+  // uses this one.
+  let latestCtx: ExtensionContext | undefined;
+  // Set when the session shuts down: a send still in flight then is dropped,
+  // and its late failure must not warn into a dead transcript.
+  let sessionEnded = false;
+
+  // Warns about a failed send through the latest event's context. Never
+  // warns after the session ended, and never throws, so a notification
+  // problem cannot disturb the session.
+  function warnSendFailure(cause: string): void {
+    if (sessionEnded) {
+      return;
+    }
+    const ctx = latestCtx;
+    if (ctx === undefined) {
+      return;
+    }
+    try {
+      ctx.ui.notify(`pi-telegram-notify: failed to send notification: ${cause}`, 'warning');
+    } catch {
+      // A stale context (after /new, a switch, or a reload) throws; the
+      // session matters more than the warning.
+    }
+  }
 
   pi.on('session_start', (_event, ctx) => {
+    latestCtx = ctx;
+    sessionEnded = false;
     try {
       if (ctx.mode !== 'tui') {
         return;
@@ -108,32 +144,40 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  pi.on('before_agent_start', () => {
+  pi.on('session_shutdown', () => {
+    sessionEnded = true;
+  });
+
+  pi.on('before_agent_start', (_event, ctx) => {
+    latestCtx = ctx;
     if (run === undefined) {
       run = { startTimeMs: Date.now(), messages: [], outcome: undefined };
     }
   });
 
-  pi.on('message_end', (event) => {
+  pi.on('message_end', (event, ctx) => {
+    latestCtx = ctx;
     if (run !== undefined && event.message.role === 'assistant') {
       run.messages.push(event.message);
     }
   });
 
-  pi.on('agent_before_settle', (event) => {
+  pi.on('agent_before_settle', (event, ctx) => {
+    latestCtx = ctx;
     if (run !== undefined) {
       run.outcome = event.outcome;
     }
   });
 
   pi.on('agent_settled', (_event, ctx) => {
+    latestCtx = ctx;
     const finished = run;
     run = undefined;
     if (finished === undefined || finished.outcome !== 'completed') {
       return;
     }
     try {
-      notifyCompleted(ctx, finished, misconfigured);
+      notifyCompleted(ctx, finished, misconfigured, warnSendFailure);
     } catch {
       // Notification bookkeeping must never break settlement.
     }
