@@ -1,6 +1,6 @@
-// Message renderer: a pure function from a notification's parts to the
+// Message renderer: pure functions from a notification's parts to the
 // Telegram HTML text. It owns the template, duration formatting, cutting,
-// and escaping. Later tickets add the error and dialog shapes beside this one.
+// and escaping. Later tickets add the dialog shape beside these two.
 export interface CompletedNotificationParts {
   durationMs: number;
   projectName: string;
@@ -10,7 +10,20 @@ export interface CompletedNotificationParts {
   excerpt: string | undefined;
 }
 
+export interface ErrorNotificationParts {
+  durationMs: number;
+  projectName: string;
+  sessionName: string | undefined;
+  sessionTag: string;
+  // Raw error message; collapsing, cutting, and escaping happen here.
+  // Undefined or empty (after collapsing) omits the detail line.
+  detail: string | undefined;
+  // Raw reply text; cutting and escaping happen here, never by the caller.
+  excerpt: string | undefined;
+}
+
 const MAX_EXCERPT_CHARS = 800;
+const MAX_DETAIL_CHARS = 300;
 
 function formatDuration(durationMs: number): string {
   const totalSeconds = Math.floor(durationMs / 1000);
@@ -54,4 +67,46 @@ export function renderCompletedNotification(parts: CompletedNotificationParts): 
     return `${headline}\n${byline}`;
   }
   return `${headline}\n${byline}\n\n<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`;
+}
+
+// Collapses whitespace to single spaces and keeps the first part of a long
+// detail, ending with `…`, for 300 characters in total. The cut is on the
+// raw collapsed text, so an entity is never cut in half; a cut that would
+// split a surrogate pair backs off one unit. Empty after collapsing omits.
+function cutDetail(raw: string): string | undefined {
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
+  if (collapsed === '') {
+    return undefined;
+  }
+  if (collapsed.length <= MAX_DETAIL_CHARS) {
+    return escapeHtml(collapsed);
+  }
+  let head = collapsed.slice(0, MAX_DETAIL_CHARS - 1);
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) {
+    head = head.slice(0, -1);
+  }
+  return escapeHtml(`${head}…`);
+}
+
+export function renderErrorNotification(parts: ErrorNotificationParts): string {
+  const headline = `❌ <b>Error</b> · ${formatDuration(parts.durationMs)} · #s${parts.sessionTag}`;
+  const byline =
+    parts.sessionName === undefined
+      ? escapeHtml(parts.projectName)
+      : `${escapeHtml(parts.projectName)} · ${escapeHtml(parts.sessionName)}`;
+  const body: string[] = [];
+  if (parts.detail !== undefined) {
+    const detail = cutDetail(parts.detail);
+    if (detail !== undefined) {
+      body.push(`<b>${detail}</b>`);
+    }
+  }
+  if (parts.excerpt !== undefined) {
+    body.push(`<blockquote expandable>${cutExcerpt(parts.excerpt)}</blockquote>`);
+  }
+  if (body.length === 0) {
+    return `${headline}\n${byline}`;
+  }
+  return `${headline}\n${byline}\n\n${body.join('\n')}`;
 }
