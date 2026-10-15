@@ -254,4 +254,54 @@ describe('completed run', () => {
     await session.prompt('do the thing');
     assert.equal(stub.requests.length, 0);
   });
+
+  test('a never-settling send blocks neither the settle nor the next prompt', { timeout: 30_000 }, async (t) => {
+    // Independent contract: the send runs behind the run — the settle, and
+    // the prompt after it, both resolve while Telegram never answers. The
+    // timeout is the assertion: a blocking send would hang this test.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub({ kind: 'never' });
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-never-settles');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'First run.', tickMs: 1_000 },
+      { kind: 'text', text: 'Second run.', tickMs: 1_000 },
+    ];
+    const { session } = await createScriptedSession({ scripts, cwd, clock });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('first');
+    await stub.waitForRequests(1);
+    await session.prompt('second');
+    await stub.waitForRequests(2);
+    assert.equal(stub.requests.length, 2);
+  });
+
+  test('a failed send never crashes the run', async (t) => {
+    // Independent contract: a rejected send and a Telegram error answer both
+    // resolve the run quietly — #17 reports nothing yet.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub([
+      { kind: 'network-error', message: 'socket hang up' },
+      { kind: 'bot-error', description: 'Bad Request: chat not found' },
+    ]);
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-send-fails');
+    const scripts: ScriptedReply[] = [
+      { kind: 'text', text: 'First run.', tickMs: 1_000 },
+      { kind: 'text', text: 'Second run.', tickMs: 1_000 },
+    ];
+    const { session, notifications } = await createScriptedSession({ scripts, cwd, clock });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('first');
+    await session.prompt('second');
+    const requests = await stub.waitForRequests(2);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(notifications, [] as RecordedNotification[]);
+  });
 });
