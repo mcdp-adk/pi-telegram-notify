@@ -394,12 +394,16 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
 
 // Sets the extension's environment for one test and restores it afterwards.
 // `undefined` removes the variable, so missing configuration is testable.
+// The minimum run duration defaults to `'0'` when the caller leaves it out,
+// so the existing suites keep proving the old shapes with no gate in the
+// way; pass `minRunSeconds: undefined` explicitly to test the real default.
 export function useTelegramEnv(
   t: { after: (fn: () => void) => void },
-  vars: { botToken?: string; chatId?: string },
+  vars: { botToken?: string; chatId?: string; minRunSeconds?: string },
 ): void {
   const prevToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
   const prevChatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
+  const prevMinRunSeconds = process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS;
   if (vars.botToken === undefined) {
     delete process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
   } else {
@@ -409,6 +413,15 @@ export function useTelegramEnv(
     delete process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
   } else {
     process.env.PI_TELEGRAM_NOTIFY_CHAT_ID = vars.chatId;
+  }
+  // An absent key (not an explicit `undefined`) means the suite predates the
+  // gate: restore the previous always-notify behavior for it.
+  if (!('minRunSeconds' in vars)) {
+    process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS = '0';
+  } else if (vars.minRunSeconds === undefined) {
+    delete process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS;
+  } else {
+    process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS = vars.minRunSeconds;
   }
   t.after(() => {
     if (prevToken === undefined) {
@@ -420,6 +433,11 @@ export function useTelegramEnv(
       delete process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
     } else {
       process.env.PI_TELEGRAM_NOTIFY_CHAT_ID = prevChatId;
+    }
+    if (prevMinRunSeconds === undefined) {
+      delete process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS;
+    } else {
+      process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS = prevMinRunSeconds;
     }
   });
 }
