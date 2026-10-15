@@ -1,8 +1,7 @@
 // Test harness for this package's suites: a real pi SDK session that loads
 // the package through package discovery, with the model boundary scripted by
-// a faux provider and Telegram replaced at `globalThis.fetch`.
-// Later tickets reuse this seam for error replies, tool calls, and dialogs;
-// the scripted replies already cover those shapes so the suites slot in.
+// a faux provider and Telegram replaced at `globalThis.fetch`. The scripted
+// replies cover text, tool-call, and error shapes for the suites below.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -311,9 +310,15 @@ export function installTelegramFetchStub(answer: TelegramAnswer | TelegramAnswer
     if (!url.includes('api.telegram.org')) {
       return realFetch(input as string, init);
     }
+    // The recorded body narrows from `unknown`: only a non-empty object
+    // shape is kept, anything else (a JSON array, a string) records empty.
     let body: Record<string, unknown> = {};
     try {
-      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(String(init?.body ?? '{}'));
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+        // Narrowed by the shape check above from `unknown`.
+        body = parsed as Record<string, unknown>;
+      }
     } catch {
       body = {};
     }
