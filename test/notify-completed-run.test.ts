@@ -209,4 +209,21 @@ describe('completed run', () => {
       `✅ <b>Completed</b> · 1s · #s${sessionManager.getSessionId().slice(-4)}\n${path.basename(cwd)}`,
     );
   });
+
+  test('sends nothing outside the tui', async (t) => {
+    // Independent contract: the same completed run under another mode stays
+    // silent — and the run itself still works.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('completed-non-tui');
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'All done.', tickMs: 41_000 }];
+    const { session } = await createScriptedSession({ scripts, cwd, clock, mode: 'rpc' });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('do the thing');
+    assert.equal(stub.requests.length, 0);
+  });
 });
