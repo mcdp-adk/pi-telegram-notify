@@ -23,6 +23,10 @@ _Avoid_: session label, short id
 Everything pi does in a session between receiving a message and stopping to wait for the next one; it ends completed, with an error, or aborted.
 _Avoid_: Turn (one model reply within a run), task
 
+**Dialog**:
+A blocking prompt an extension shows the developer through pi's UI (a choice, confirmation, text input, editor, or custom component); the run waits until the developer answers it.
+_Avoid_: UI prompt, question
+
 **Notification**:
 One Telegram message the extension sends about a session.
 
