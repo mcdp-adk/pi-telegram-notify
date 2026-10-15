@@ -133,6 +133,13 @@ export interface ScriptedSessionOptions {
   // Extra inline factories beside the faux provider, e.g. a suite's tools
   // that open dialogs or fail on purpose.
   extensionFactories?: InlineExtension[];
+  // A suite that must hold a scripted dialog open (e.g. to advance the
+  // clock mid-dialog) passes a gate: `confirm` waits for
+  // `releaseConfirm()` before answering. The suite observes the open
+  // dialog through the notification the open dialog sends.
+  holdConfirm?: {
+    releaseConfirm: () => Promise<void>;
+  };
   // Extra package directories loaded before this package, so their
   // extensions observe events first. The foreign-dialog suite needs an
   // extension ordered ahead of the package under test.
@@ -154,6 +161,7 @@ export async function createScriptedSession({
   mode = 'tui',
   clock,
   extensionFactories = [],
+  holdConfirm,
   earlierPackages = [],
 }: ScriptedSessionOptions): Promise<ScriptedSession> {
   const remaining: ScriptedReply[] = [...scripts];
@@ -219,7 +227,12 @@ export async function createScriptedSession({
         notifications.push({ message, level });
       },
       select: async () => undefined,
-      confirm: async () => false,
+      confirm: async () => {
+        if (holdConfirm !== undefined) {
+          await holdConfirm.releaseConfirm();
+        }
+        return false;
+      },
       input: async () => undefined,
       editor: async () => undefined,
       custom: async () => undefined,

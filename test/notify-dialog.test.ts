@@ -255,12 +255,19 @@ describe('dialog during a run', () => {
   test('counts the open dialog in the run duration', async (t) => {
     // Independent contract: the completed notification after a dialog
     // includes the time the dialog was open — the run clock never pauses.
+    // The clock advances while the dialog is actually open (the dialog
+    // notification went out, the confirm answer is still gated), never
+    // inside the tool before the dialog exists.
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub();
     t.after(() => stub.restore());
     const clock: TestClock = { now: 1_700_000_000_000 };
     t.mock.method(Date, 'now', () => clock.now);
     const cwd = makeTempRoot('dialog-duration');
+    let releaseConfirm!: () => void;
+    const confirmReleased = new Promise<void>((resolve) => {
+      releaseConfirm = () => resolve();
+    });
     const slowConfirmToolFactory: InlineExtension = async (pi: ExtensionAPI) => {
       pi.registerTool({
         name: 'ask_slow',
@@ -268,7 +275,6 @@ describe('dialog during a run', () => {
         description: 'Opens a dialog the developer takes a minute to answer.',
         parameters: Type.Object({}),
         execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
-          clock.now += 65_000;
           await ctx.ui.confirm('Proceed?', 'Ship it?');
           return {
             content: [{ type: 'text', text: 'noted' }],
@@ -286,10 +292,19 @@ describe('dialog during a run', () => {
       cwd,
       clock,
       extensionFactories: [slowConfirmToolFactory],
+      holdConfirm: {
+        releaseConfirm: () => confirmReleased,
+      },
     });
     t.after(async () => shutdownSession(session));
 
-    await session.prompt('ship it');
+    const promptDone = session.prompt('ship it');
+    // The dialog notification went out, so the dialog is open: the clock
+    // moves now, while the developer is still reading.
+    await stub.waitForRequests(1);
+    clock.now += 65_000;
+    releaseConfirm();
+    await promptDone;
     const requests: RecordedTelegramRequest[] = await stub.waitForRequests(2);
     assert.equal(requests.length, 2);
 
