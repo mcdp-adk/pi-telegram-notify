@@ -1,9 +1,10 @@
 // Extension entry: tracks the current run from pi's events and sends one
-// Telegram notification when a run completes in a `tui` session. Only
-// `tui` sessions and completed runs notify; anything else returns before the
-// sender is reached. No handler awaits a send, and no handler throws, so
-// notifications can never disturb the session. Later tickets add the error
-// outcome, dialogs, and the missing-configuration and send-failure warnings.
+// Telegram notification when a run completes or ends with an error in a
+// `tui` session. Only `tui` sessions and settled runs with an outcome of
+// `completed` or `error` notify; aborted runs and anything else return
+// before the sender is reached. No handler awaits a send, and no handler
+// throws, so notifications can never disturb the session. Later tickets add
+// dialogs and the missing-configuration and send-failure warnings.
 import { basename } from 'node:path';
 import type {
   AgentActivityOutcome,
@@ -11,10 +12,10 @@ import type {
   ExtensionContext,
   MessageEndEvent,
 } from '@earendil-works/pi-coding-agent';
-import { renderCompletedNotification } from './message.ts';
+import { renderCompletedNotification, renderErrorNotification } from './message.ts';
 import { sendTelegramMessage } from './telegram.ts';
 
-type RunMessage = MessageEndEvent['message'];
+type RunMessage = Extract<MessageEndEvent['message'], { role: 'assistant' }>;
 
 interface ActiveRun {
   startTimeMs: number;
@@ -47,6 +48,16 @@ function latestReplyText(messages: RunMessage[]): string | undefined {
   return undefined;
 }
 
+// The run's last assistant message's error message, never an earlier
+// one's. A failed tool call carries no message of its own, so only the
+// run's outcome decides between the completed and error shapes.
+function lastErrorMessage(messages: RunMessage[]): string | undefined {
+  if (messages.length === 0) {
+    return undefined;
+  }
+  return messages[messages.length - 1].errorMessage;
+}
+
 function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
   if (ctx.mode !== 'tui') {
     return;
@@ -64,6 +75,29 @@ function notifyCompleted(ctx: ExtensionContext, run: ActiveRun): void {
       projectName: basename(ctx.cwd),
       sessionName: ctx.sessionManager.getSessionName(),
       sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      excerpt: latestReplyText(run.messages),
+    }),
+  );
+}
+
+function notifyError(ctx: ExtensionContext, run: ActiveRun): void {
+  if (ctx.mode !== 'tui') {
+    return;
+  }
+  const botToken = process.env.PI_TELEGRAM_NOTIFY_BOT_TOKEN;
+  const chatId = process.env.PI_TELEGRAM_NOTIFY_CHAT_ID;
+  if (!botToken || !chatId) {
+    return;
+  }
+  sendTelegramMessage(
+    botToken,
+    chatId,
+    renderErrorNotification({
+      durationMs: Date.now() - run.startTimeMs,
+      projectName: basename(ctx.cwd),
+      sessionName: ctx.sessionManager.getSessionName(),
+      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      detail: lastErrorMessage(run.messages),
       excerpt: latestReplyText(run.messages),
     }),
   );
@@ -93,11 +127,15 @@ export default function (pi: ExtensionAPI): void {
   pi.on('agent_settled', (_event, ctx) => {
     const finished = run;
     run = undefined;
-    if (finished === undefined || finished.outcome !== 'completed') {
+    if (finished === undefined || (finished.outcome !== 'completed' && finished.outcome !== 'error')) {
       return;
     }
     try {
-      notifyCompleted(ctx, finished);
+      if (finished.outcome === 'error') {
+        notifyError(ctx, finished);
+      } else {
+        notifyCompleted(ctx, finished);
+      }
     } catch {
       // Notification bookkeeping must never break settlement.
     }
