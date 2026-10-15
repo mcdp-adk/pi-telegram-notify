@@ -319,4 +319,25 @@ describe('error run', () => {
         `<blockquote expandable>Second run done.</blockquote>`,
     );
   });
+
+  test('a misconfigured session sends nothing for an error run', async (t) => {
+    // Merge seam: the missing-configuration gate threads through the error
+    // path too — with neither variable set, an error run warns at session
+    // start and sends no Telegram request. An error notifier that skips the
+    // gate sends here.
+    useTelegramEnv(t, { botToken: undefined, chatId: undefined });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const cwd = makeTempRoot('error-misconfigured');
+    const scripts: ScriptedReply[] = [
+      { kind: 'error', text: 'Working on it.', errorMessage: 'Something broke' },
+    ];
+    const { session } = await createScriptedSession({ scripts, cwd });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('do the thing');
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(stub.requests.length, 0);
+  });
 });
