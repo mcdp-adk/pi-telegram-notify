@@ -26,6 +26,7 @@ import type {
   AgentSession,
   ExtensionAPI,
   ExtensionUIContext,
+  InlineExtension,
 } from '@earendil-works/pi-coding-agent';
 // AuthStorage is not re-exported from the package index, so the harness
 // reaches the same module pi itself loads, by the path that exists at
@@ -128,6 +129,9 @@ export interface ScriptedSessionOptions {
   // package index does not re-export the mode union.
   mode?: NonNullable<Parameters<AgentSession['bindExtensions']>[0]['mode']>;
   clock?: TestClock;
+  // Extra inline factories beside the faux provider, e.g. a suite's tools.
+  // Later tickets register dialog tools this way.
+  extensionFactories?: InlineExtension[];
 }
 
 export interface ScriptedSession {
@@ -144,6 +148,7 @@ export async function createScriptedSession({
   cwd,
   mode = 'tui',
   clock,
+  extensionFactories = [],
 }: ScriptedSessionOptions): Promise<ScriptedSession> {
   const remaining: ScriptedReply[] = [...scripts];
   const notifications: RecordedNotification[] = [];
@@ -176,7 +181,7 @@ export async function createScriptedSession({
     cwd,
     agentDir: cwd,
     settingsManager,
-    extensionFactories: [packageExtensionFactory],
+    extensionFactories: [packageExtensionFactory, ...extensionFactories],
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
