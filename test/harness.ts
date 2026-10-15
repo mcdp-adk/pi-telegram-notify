@@ -130,9 +130,13 @@ export interface ScriptedSessionOptions {
   // package index does not re-export the mode union.
   mode?: NonNullable<Parameters<AgentSession['bindExtensions']>[0]['mode']>;
   clock?: TestClock;
-  // Extra inline factories beside the faux provider, e.g. a suite's tools.
-  // Later tickets register dialog tools this way.
+  // Extra inline factories beside the faux provider, e.g. a suite's tools
+  // that open dialogs or fail on purpose.
   extensionFactories?: InlineExtension[];
+  // Extra package directories loaded before this package, so their
+  // extensions observe events first. The foreign-dialog suite needs an
+  // extension ordered ahead of the package under test.
+  earlierPackages?: string[];
 }
 
 export interface ScriptedSession {
@@ -150,6 +154,7 @@ export async function createScriptedSession({
   mode = 'tui',
   clock,
   extensionFactories = [],
+  earlierPackages = [],
 }: ScriptedSessionOptions): Promise<ScriptedSession> {
   const remaining: ScriptedReply[] = [...scripts];
   const notifications: RecordedNotification[] = [];
@@ -177,7 +182,7 @@ export async function createScriptedSession({
   // SettingsManager.inMemory({ packages: [...] }) writes the packages list into
   // InMemorySettingsStorage under scope "global"; PackageManager reads the merged
   // settings to find the package sources. Do NOT wrap in { globalSettings: {...} }.
-  const settingsManager = SettingsManager.inMemory({ packages: [repoRoot] });
+  const settingsManager = SettingsManager.inMemory({ packages: [...earlierPackages, repoRoot] });
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: cwd,

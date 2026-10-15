@@ -1,5 +1,6 @@
 // Ticket #19: a dialog opened during a run sends one Telegram notification
 // that rings. A dialog opened while no run is in progress stays silent.
+import fs from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -78,6 +79,48 @@ describe('dialog during a run', () => {
     );
   });
 
+  test('notifies a dialog opened by an earlier extension before our run starts', async (t) => {
+    // Regression: an extension ordered ahead of this one opens its dialog
+    // in its own `before_agent_start`, before this extension records the
+    // run. The session is already busy, so the dialog still notifies — with
+    // the title and no excerpt, since no reply exists yet.
+    useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
+    const stub = installTelegramFetchStub();
+    t.after(() => stub.restore());
+    const clock: TestClock = { now: 1_700_000_000_000 };
+    t.mock.method(Date, 'now', () => clock.now);
+    const cwd = makeTempRoot('dialog-foreign');
+    const scripts: ScriptedReply[] = [{ kind: 'text', text: 'Done after the early dialog.', tickMs: 1_000 }];
+    const { session, sessionManager } = await createScriptedSession({
+      scripts,
+      cwd,
+      clock,
+      earlierPackages: [writeForeignDialogPackage()],
+    });
+    t.after(async () => shutdownSession(session));
+
+    await session.prompt('start');
+    const requests: RecordedTelegramRequest[] = await stub.waitForRequests(2);
+    assert.equal(requests.length, 2);
+
+    const tag = sessionManager.getSessionId().slice(-4);
+    const project = path.basename(cwd);
+    assert.equal(
+      requests[0].body['text'],
+      `❓ <b>Waiting for you</b> · #s${tag}\n` +
+        `${project}\n` +
+        `\n` +
+        `<b>Foreign &lt;title&gt; &amp; go?</b>`,
+    );
+    assert.equal(
+      requests[1].body['text'],
+      `✅ <b>Completed</b> · 1s · #s${tag}\n` +
+        `${project}\n` +
+        `\n` +
+        `<blockquote expandable>Done after the early dialog.</blockquote>`,
+    );
+  });
+
   test('sends the header and the excerpt when the dialog has no title', async (t) => {
     // Independent contract: a title-less dialog (here a `custom` one, the
     // only kind without a title) still notifies — with no empty bold line.
@@ -130,6 +173,34 @@ describe('dialog during a run', () => {
         `<blockquote expandable>Picking.</blockquote>`,
     );
   });
+
+  // A package ordered ahead of the package under test: its
+  // `before_agent_start` opens a dialog before this extension records the
+  // run. Written to disk because package discovery loads packages, never
+  // inline factories, first.
+  function writeForeignDialogPackage(): string {
+    const dir = makeTempRoot('dialog-foreign-pkg');
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'foreign-dialog-pkg',
+        version: '0.0.0',
+        type: 'module',
+        pi: { extensions: ['./foreign-extension.ts'] },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'foreign-extension.ts'),
+      `import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';\n` +
+        `\n` +
+        `export default function (pi: ExtensionAPI): void {\n` +
+        `  pi.on('before_agent_start', async (_event, ctx) => {\n` +
+        `    await ctx.ui.confirm('Foreign <title> & go?', 'Proceed?');\n` +
+        `  });\n` +
+        `}\n`,
+    );
+    return dir;
+  }
 
   test('sends nothing for a dialog opened while no run is in progress', async (t) => {
     // Independent contract: a dialog the developer opens from a command
