@@ -1,7 +1,7 @@
 {
   "name": "@mcdp-adk/pi-telegram-notify",
   "version": "0.1.1",
-  "description": "pi extension: send Telegram notifications",
+  "description": "Pi package that sends a Telegram message when pi finishes, fails, or waits for you",
   "keywords": [
     "pi-package"
   ],
