@@ -28,7 +28,7 @@ background and never delay, abort, or crash the session.
 2. Send `/newbot` and follow its questions: a display name, then a username
    ending in `bot` (for example `my_pi_notifier_bot`).
 3. BotFather replies with the bot token, a string like
-   `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. Keep it secret — anyone
+   `<bot-id>:<secret>`, such as `123456789:AA…`. Keep it secret — anyone
    holding it controls the bot. See
    [BotFather](https://core.telegram.org/bots/features#botfather) and
    [Bots: An introduction for developers](https://core.telegram.org/bots).
@@ -103,8 +103,8 @@ settings file:
 Export both before starting pi:
 
 ```bash
-export PI_TELEGRAM_NOTIFY_BOT_TOKEN=110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw
-export PI_TELEGRAM_NOTIFY_CHAT_ID=123456789
+export PI_TELEGRAM_NOTIFY_BOT_TOKEN='<your-bot-token>'
+export PI_TELEGRAM_NOTIFY_CHAT_ID='<your-chat-id>'
 ```
 
 At session start in a `tui` session, each missing (unset or empty) variable
