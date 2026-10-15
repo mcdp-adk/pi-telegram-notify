@@ -259,8 +259,15 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  pi.on('agent_settled', (_event, ctx) => {
+  pi.on('agent_settled', (event, ctx) => {
     latestCtx = ctx;
+    // The settle event reports whether the run was aborted (Escape or
+    // another extension's `ctx.abort()`), whatever outcome was cached
+    // earlier: an aborted run sends nothing.
+    if (event.aborted) {
+      run = undefined;
+      return;
+    }
     const finished = run;
     run = undefined;
     if (finished === undefined || (finished.outcome !== 'completed' && finished.outcome !== 'error')) {
