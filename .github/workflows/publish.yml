@@ -1,0 +1,45 @@
+# Publishes the package to npm when a version tag is pushed, through npm
+# trusted publishing: npm trusts this workflow, so no token exists, and each
+# release carries provenance. Node 24 bundles an npm new enough for it. A
+# tagged commit on main has passed the check workflow, so nothing is rerun.
+#
+# To release <version>:
+#   0. If `npm trust list @mcdp-adk/pi-telegram-notify` shows no trusted
+#      publisher, add one allowed to publish directly:
+#      npm trust github @mcdp-adk/pi-telegram-notify --repo mcdp-adk/pi-telegram-notify --file publish.yml --allow-publish
+#      npm drops a new one that has not published within two days, so add it
+#      just before pushing the tag in step 2.
+#   1. On a branch, run `npm version <version>`; it bumps package.json and
+#      package-lock.json only (see .npmrc). Commit them in a PR titled
+#      `chore: release <version>`.
+#   2. Once it is squash-merged, tag its merged commit and push the tag:
+#      git fetch && git tag v<version> "$(gh pr view <pr> --json mergeCommit --jq .mergeCommit.oid)"
+#      git push origin v<version>
+#   3. The release is out once npm serves it, a few minutes after the run
+#      succeeds: `npm view @mcdp-adk/pi-telegram-notify versions` lists it.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: the tag names the package version
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
+      - name: the tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: npm publish
