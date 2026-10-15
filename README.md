@@ -12,7 +12,7 @@ Three moments notify, each as one Telegram message that rings:
   in bold above the quote.
 - `❓ Waiting for you · #s<tag>` when a run opens a dialog (a confirm, a
   choice, an input), with the dialog title in bold — no duration, the run
-  is still going.
+  is still going — and the reply so far, if any, in the quote.
 
 Every message names the project (the basename of the session's working
 directory) and the session name when the session has one; the `#s<tag>`
@@ -112,9 +112,12 @@ produces one warning naming it, for example
 `pi-telegram-notify: PI_TELEGRAM_NOTIFY_BOT_TOKEN is not set; Telegram
 notifications are disabled for this session.` The session then sends nothing.
 Sessions in any other mode never warn. Values are not checked at startup: a
-wrong token or chat id shows up only as a failed send, so when nothing
-arrives, check both values first (`Unauthorized` means the token is wrong,
-`Bad Request: chat not found` means the chat id is).
+wrong token or chat id shows up only as a failed send. A failed send warns
+in pi with Telegram's reason, for example `pi-telegram-notify: failed to
+send notification: Unauthorized`. Only the first failure in a row warns
+until a send succeeds again, and a failed send is never retried. When
+nothing arrives, check both values first (`Unauthorized` means the token is
+wrong, `Bad Request: chat not found` means the chat id is).
 
 ## Proxy
 
