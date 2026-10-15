@@ -15,6 +15,7 @@ import type {
   MessageEndEvent,
 } from '@earendil-works/pi-coding-agent';
 import { renderNotification } from './message.ts';
+import type { SessionIdentity } from './message.ts';
 import { sendTelegramMessage } from './telegram.ts';
 
 type RunMessage = Extract<MessageEndEvent['message'], { role: 'assistant' }>;
@@ -90,6 +91,16 @@ function sendIfReady(
   sendTelegramMessage(credentials.botToken, credentials.chatId, text, onFailure);
 }
 
+// Identity of the session a notification belongs to, read when the
+// notification is built so a mid-session rename shows in the next one.
+function sessionIdentity(ctx: ExtensionContext): SessionIdentity {
+  return {
+    projectName: basename(ctx.cwd),
+    sessionName: ctx.sessionManager.getSessionName(),
+    sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+  };
+}
+
 function notifyCompleted(
   ctx: ExtensionContext,
   run: ActiveRun,
@@ -102,9 +113,7 @@ function notifyCompleted(
     renderNotification({
       status: 'completed',
       durationMs: Date.now() - run.startTimeMs,
-      projectName: basename(ctx.cwd),
-      sessionName: ctx.sessionManager.getSessionName(),
-      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      ...sessionIdentity(ctx),
       excerpt: latestReplyText(run.messages),
     }),
     onFailure,
@@ -123,9 +132,7 @@ function notifyError(
     renderNotification({
       status: 'error',
       durationMs: Date.now() - run.startTimeMs,
-      projectName: basename(ctx.cwd),
-      sessionName: ctx.sessionManager.getSessionName(),
-      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      ...sessionIdentity(ctx),
       detail: lastErrorMessage(run.messages),
       excerpt: latestReplyText(run.messages),
     }),
@@ -145,9 +152,7 @@ function notifyDialog(
     misconfigured,
     renderNotification({
       status: 'dialog',
-      projectName: basename(ctx.cwd),
-      sessionName: ctx.sessionManager.getSessionName(),
-      sessionTag: ctx.sessionManager.getSessionId().slice(-4),
+      ...sessionIdentity(ctx),
       detail: title,
       excerpt,
     }),

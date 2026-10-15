@@ -2,10 +2,9 @@
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Type } from 'typebox';
-import type { ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent';
 import {
   createScriptedSession,
+  echoToolFactory,
   installTelegramFetchStub,
   makeTempRoot,
   shutdownSession,
@@ -14,22 +13,6 @@ import {
 import type { RecordedNotification, RecordedTelegramRequest, ScriptedReply, TestClock } from './harness.ts';
 
 describe('completed run', () => {
-  // A tool the faux model can call, so a run holds more than one assistant
-  // message. Its result text must never leak into the excerpt: only
-  // assistant text counts.
-  const echoToolFactory: InlineExtension = async (pi: ExtensionAPI) => {
-    pi.registerTool({
-      name: 'echo_note',
-      label: 'Echo note',
-      description: 'Returns its input as tool result text.',
-      parameters: Type.Object({ note: Type.String() }),
-      execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => ({
-        content: [{ type: 'text', text: `echo:${params.note}` }],
-        details: undefined,
-      }),
-    });
-  };
-
   test('sends one sendMessage with the exact completed HTML', async (t) => {
     useTelegramEnv(t, { botToken: 'test-bot-token', chatId: '12345' });
     const stub = installTelegramFetchStub();

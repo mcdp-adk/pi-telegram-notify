@@ -9,6 +9,7 @@ import { Type } from 'typebox';
 import type { ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent';
 import {
   createScriptedSession,
+  echoToolFactory,
   installTelegramFetchStub,
   makeTempRoot,
   shutdownSession,
@@ -17,22 +18,6 @@ import {
 import type { RecordedTelegramRequest, ScriptedReply, TestClock } from './harness.ts';
 
 describe('error run', () => {
-  // A tool the faux model can call, so a run holds more than one assistant
-  // message. Mirrors the completed suite's tool: its result text must never
-  // leak into the excerpt or the detail.
-  const echoToolFactory: InlineExtension = async (pi: ExtensionAPI) => {
-    pi.registerTool({
-      name: 'echo_note',
-      label: 'Echo note',
-      description: 'Returns its input as tool result text.',
-      parameters: Type.Object({ note: Type.String() }),
-      execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => ({
-        content: [{ type: 'text', text: `echo:${params.note}` }],
-        details: undefined,
-      }),
-    });
-  };
-
   test('sends the error status with the collapsed error message and excerpt', async (t) => {
     // Primary owner: the error shape — ❌ Error header, bold error detail,
     // then the excerpt. A completed-only implementation sends nothing here.

@@ -1,38 +1,38 @@
 // Message renderer: one pure function from a notification's parts to the
 // Telegram HTML text. It owns the template, duration formatting, cutting,
 // and escaping for every status.
+// Identity of the session a notification belongs to: the project
+// containing the session, its display name when set, and the hashtag that
+// tells apart sessions in the same project.
+export interface SessionIdentity {
+  projectName: string;
+  sessionName: string | undefined;
+  sessionTag: string;
+}
+
 export type NotificationParts =
-  | {
+  | (SessionIdentity & {
       status: 'completed';
       durationMs: number;
-      projectName: string;
-      sessionName: string | undefined;
-      sessionTag: string;
       detail?: never;
       excerpt: string | undefined;
-    }
-  | {
+    })
+  | (SessionIdentity & {
       status: 'error';
       durationMs: number;
-      projectName: string;
-      sessionName: string | undefined;
-      sessionTag: string;
       // Raw error message; collapsing, cutting, and escaping happen here.
       // Undefined or empty (after collapsing) omits the detail line.
       detail: string | undefined;
       excerpt: string | undefined;
-    }
-  | {
+    })
+  | (SessionIdentity & {
       status: 'dialog';
       durationMs?: never;
-      projectName: string;
-      sessionName: string | undefined;
-      sessionTag: string;
       // Raw dialog title; omitted when the dialog has none. Titles are
       // short, so it is escaped but never cut.
       detail: string | undefined;
       excerpt: string | undefined;
-    };
+    });;
 
 const MAX_EXCERPT_CHARS = 800;
 const MAX_DETAIL_CHARS = 300;

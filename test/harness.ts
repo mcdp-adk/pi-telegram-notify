@@ -32,6 +32,7 @@ import type {
 // reaches the same module pi itself loads, by the path that exists at
 // runtime — never `any`, and never through the package under test.
 import { AuthStorage } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js';
+import { Type } from 'typebox';
 
 const MODEL: Model<Api> = {
   id: 'faux-1',
@@ -241,6 +242,22 @@ export async function createScriptedSession({
 
   return { session, sessionManager, notifications };
 }
+
+// A tool the faux model can call, so a run holds more than one assistant
+// message. Its result text must never leak into excerpts or details: only
+// assistant text counts.
+export const echoToolFactory: InlineExtension = async (pi: ExtensionAPI) => {
+  pi.registerTool({
+    name: 'echo_note',
+    label: 'Echo note',
+    description: 'Returns its input as tool result text.',
+    parameters: Type.Object({ note: Type.String() }),
+    execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => ({
+      content: [{ type: 'text', text: `echo:${params.note}` }],
+      details: undefined,
+    }),
+  });
+};
 
 // Every session ends with `session_shutdown`, so nothing it started outlives
 // its test.
