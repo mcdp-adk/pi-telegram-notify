@@ -17,9 +17,12 @@ Three moments notify, each as one Telegram message that rings:
 Every message names the project (the basename of the session's working
 directory) and the session name when the session has one; the `#s<tag>`
 tells apart sessions in the same project. Quotes hold about 800 characters
-of the reply, the bold error line about 300. Anything else — an aborted run,
-a dialog opened outside a run, a non-`tui` session (`pi -p`, `--mode json`,
-`--mode rpc`), session start and end — stays silent. Sends run in the
+of the reply, the bold error line about 300. A run that lasts less than a
+minute stays silent, and so does a dialog opened that early in a run — a
+quick run finishes before you could have left the computer. Anything
+else — an aborted run, a dialog opened outside a run, a non-`tui` session
+(`pi -p`, `--mode json`, `--mode rpc`), session start and end — stays
+silent. Sends run in the
 background and never delay, abort, or crash the session.
 
 ## Create the bot
@@ -99,6 +102,7 @@ settings file:
 | --- | --- | --- |
 | `PI_TELEGRAM_NOTIFY_BOT_TOKEN` | The bot token from BotFather | Yes |
 | `PI_TELEGRAM_NOTIFY_CHAT_ID` | The recipient chat id (numeric, or `@channelusername`) | Yes |
+| `PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS` | Minimum run age in seconds before a notification may go out (`0` notifies always) | No (default `60`) |
 
 Export both before starting pi:
 
@@ -111,7 +115,12 @@ At session start in a `tui` session, each missing (unset or empty) variable
 produces one warning naming it, for example
 `pi-telegram-notify: PI_TELEGRAM_NOTIFY_BOT_TOKEN is not set; Telegram
 notifications are disabled for this session.` The session then sends nothing.
-Sessions in any other mode never warn. Values are not checked at startup: a
+Sessions in any other mode never warn. Short runs stay silent too: a run —
+or a dialog within it — younger than `PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS`
+seconds sends nothing, since a quick run finishes before you could have left
+the computer. The default is 60 seconds and `0` notifies always. An invalid
+value (anything non-numeric or negative) warns once at session start and
+behaves as the default. The token and chat id are not checked at startup: a
 wrong token or chat id shows up only as a failed send. A failed send warns
 in pi with Telegram's reason, for example `pi-telegram-notify: failed to
 send notification: Unauthorized`. Only the first failure in a row warns

@@ -1,9 +1,12 @@
 // Extension entry: tracks the current run from pi's events and sends one
 // Telegram notification when a run completes, ends with an error, or opens
 // a dialog during a run in a `tui` session. Only `tui` sessions notify;
-// aborted runs, idle dialogs, and anything else return before the sender is
-// reached. At session start a `tui` session with a missing bot token or chat
-// id warns once and then sends nothing. A send that fails warns once per
+// aborted runs, idle dialogs, runs younger than
+// PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS (default 60), and anything else return
+// before the sender is reached. At session start a `tui` session with a
+// missing bot token or chat id warns once and then sends nothing, as does an
+// invalid minimum duration (which then falls back to the default). A send
+// that fails warns once per
 // outage with the real cause, through the latest event's context. No handler
 // awaits a send, and no handler throws, so notifications can never disturb
 // the session.
@@ -24,6 +27,27 @@ interface ActiveRun {
   startTimeMs: number;
   messages: RunMessage[];
   outcome: AgentActivityOutcome | undefined;
+}
+
+// Minimum run age a notification requires, in seconds: a run that stops or
+// opens a dialog sooner stays silent, so a quick run the developer watched
+// never rings the phone. Zero notifies always.
+const DEFAULT_MIN_RUN_SECONDS = 60;
+
+// Reads the minimum run duration from the environment in milliseconds: unset
+// or blank means the default, and anything else must be a non-negative
+// number of seconds. Returns the fallback plus the offending value, so the
+// caller can warn about it once at session start.
+function minRunDurationMs(): { ms: number; invalid: string | undefined } {
+  const raw = process.env.PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS;
+  if (raw === undefined || raw.trim() === '') {
+    return { ms: DEFAULT_MIN_RUN_SECONDS * 1000, invalid: undefined };
+  }
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return { ms: DEFAULT_MIN_RUN_SECONDS * 1000, invalid: raw };
+  }
+  return { ms: seconds * 1000, invalid: undefined };
 }
 
 function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
@@ -165,6 +189,9 @@ export default function (pi: ExtensionAPI): void {
   // Set at session start: a session that started without its configuration
   // warns once and then sends nothing, even if the variables appear later.
   let misconfigured = false;
+  // Set at session start: the run age a notification requires. Read here so
+  // a value exported mid-session never changes a running session's mind.
+  let minRunMs = DEFAULT_MIN_RUN_SECONDS * 1000;
   // The latest event's context, refreshed on every event the extension
   // handles. A send settles later, and a context captured earlier throws
   // after a session replacement or a reload, so the failure warning always
@@ -209,15 +236,23 @@ export default function (pi: ExtensionAPI): void {
       }
       if (missing.length === 0) {
         misconfigured = false;
-        return;
+      } else {
+        misconfigured = true;
+        const names = missing.join(' and ');
+        const verb = missing.length === 1 ? 'is' : 'are';
+        ctx.ui.notify(
+          `pi-telegram-notify: ${names} ${verb} not set; Telegram notifications are disabled for this session.`,
+          'warning',
+        );
       }
-      misconfigured = true;
-      const names = missing.join(' and ');
-      const verb = missing.length === 1 ? 'is' : 'are';
-      ctx.ui.notify(
-        `pi-telegram-notify: ${names} ${verb} not set; Telegram notifications are disabled for this session.`,
-        'warning',
-      );
+      const minRun = minRunDurationMs();
+      minRunMs = minRun.ms;
+      if (minRun.invalid !== undefined) {
+        ctx.ui.notify(
+          `pi-telegram-notify: PI_TELEGRAM_NOTIFY_MIN_RUN_SECONDS is invalid ("${minRun.invalid}"); using the default of ${DEFAULT_MIN_RUN_SECONDS} seconds.`,
+          'warning',
+        );
+      }
     } catch {
       // A warning must never break session start.
     }
@@ -261,6 +296,13 @@ export default function (pi: ExtensionAPI): void {
     if (ctx.isIdle()) {
       return;
     }
+    // A dialog in a young run stays silent: under the minimum the developer
+    // is still watching. With no run record the run just started, so
+    // elapsed counts from zero and notifies only when the minimum is zero.
+    const dialogAgeMs = run === undefined ? 0 : Date.now() - run.startTimeMs;
+    if (dialogAgeMs < minRunMs) {
+      return;
+    }
     try {
       notifyDialog(ctx, event.title, run === undefined ? undefined : latestReplyText(run.messages), misconfigured, warnSendFailure);
     } catch {
@@ -280,6 +322,11 @@ export default function (pi: ExtensionAPI): void {
     const finished = run;
     run = undefined;
     if (finished === undefined || (finished.outcome !== 'completed' && finished.outcome !== 'error')) {
+      return;
+    }
+    // A short run stays silent, whatever its outcome: the developer watched
+    // a run this quick and needs no ring for it.
+    if (Date.now() - finished.startTimeMs < minRunMs) {
       return;
     }
     try {
