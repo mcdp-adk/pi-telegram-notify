@@ -4,12 +4,6 @@
 # tagged commit on main has passed the check workflow, so nothing is rerun.
 #
 # To release <version>:
-#   0. If `npm trust list @mcdp-adk/pi-telegram-notify` shows no trusted
-#      publisher (both commands need the owner's npm 2FA login), add one
-#      allowed to publish directly:
-#      npm trust github @mcdp-adk/pi-telegram-notify --repo mcdp-adk/pi-telegram-notify --file publish.yml --allow-publish
-#      npm drops a new one that has not published within two days, so add it
-#      just before pushing the tag in step 2.
 #   1. On a branch, run `npm version <version>`; it bumps package.json and
 #      package-lock.json only (see .npmrc). Commit them in a PR titled
 #      `chore: release <version>`.
@@ -18,6 +12,12 @@
 #      git push origin v<version>
 #   3. The release is out once npm serves it, a few minutes after the run
 #      succeeds: `npm view @mcdp-adk/pi-telegram-notify versions` lists it.
+#
+# The trusted publisher is added once, before the first workflow release, and
+# stays once it has published. Only a run that fails in `npm publish` with an
+# authentication error means npm dropped it; the owner re-adds it with their
+# npm 2FA login, then re-runs the job:
+#   npm trust github @mcdp-adk/pi-telegram-notify --repo mcdp-adk/pi-telegram-notify --file publish.yml --allow-publish
 name: publish
 
 on:
